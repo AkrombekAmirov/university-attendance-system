@@ -1,5 +1,31 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Python
+__pycache__/
+*.py[cod]
 
+# Logs
+logs/
+*.log
+
+# Alembic
+backend/alembic/
+backend/alembic.ini
+
+# Node
+node_modules/
+package-lock.json
+frontend/package-lock.json
+
+# Next.js / Tailwind / Vite / ESLint
+frontend/.next/
+frontend/postcss.config.mjs
+frontend/tailwind.config.ts
+frontend/eslint.config.mjs
+frontend/turbo.json
+
+# Personal
+*.env
+*.local
 # dependencies
 /node_modules
 /.pnp

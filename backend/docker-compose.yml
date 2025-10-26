@@ -1,0 +1,146 @@
+version: "3.9"
+
+x-env: &common-env
+  TZ: "Asia/Tashkent"
+  PGTZ: "Asia/Tashkent"
+  LANG: "en_US.UTF-8"
+  LC_ALL: "en_US.UTF-8"
+  PYTHONUNBUFFERED: "1"
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "50m"
+    max-file: "5"
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  pg-data:
+  redis-data:
+  pgbackups:
+
+services:
+  # 🟢 PostgreSQL (Timescale + performance tuning)
+  db:
+    image: timescale/timescaledb:2.15.2-pg16
+    container_name: university_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-turnikedb}
+      POSTGRES_USER: ${POSTGRES_USER:-turnikeuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-StrongSecurePass123!}
+      TZ: "Asia/Tashkent"
+      PGTZ: "Asia/Tashkent"
+    command:
+      - postgres
+      - -c
+      - max_connections=500
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=1GB
+      - -c
+      - effective_cache_size=4GB
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - max_wal_size=8GB
+      - -c
+      - min_wal_size=2GB
+      - -c
+      - wal_level=replica
+      - -c
+      - timescaledb.max_background_workers=32
+      - -c
+      - timescaledb.telemetry_level=off
+      - -c
+      - shared_preload_libraries=pg_stat_statements,timescaledb
+      - -c
+      - pg_stat_statements.max=10000
+      - -c
+      - pg_stat_statements.save=on
+    ports:
+      - "5436:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      # 🔹 Keyinchalik `init` SQL fayllarni joylashtirish uchun joy tayyor:
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - pgbackups:/backups:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-turnikeuser} -d ${POSTGRES_DB:-turnikedb} || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    networks: [backend]
+    logging: *default-logging
+
+  # 🟡 Pgbouncer (connection pooler)
+#  pgbouncer:
+#    image: bitnami/pgbouncer:latest
+#    container_name: university_pgbouncer
+#    restart: unless-stopped
+#    environment:
+#      POSTGRESQL_HOST: db
+#      POSTGRESQL_PORT_NUMBER: 5432
+#      PGBOUNCER_PORT_NUMBER: 6432
+#      PGBOUNCER_POOL_MODE: transaction
+#      PGBOUNCER_MAX_CLIENT_CONN: "2000"
+#      PGBOUNCER_DEFAULT_POOL_SIZE: "100"
+#      PGBOUNCER_MIN_POOL_SIZE: "20"
+#      PGBOUNCER_RESERVE_POOL_SIZE: "50"
+#      PGBOUNCER_RESERVE_POOL_TIMEOUT: "5"
+#      PGBOUNCER_IGNORE_STARTUP_PARAMETERS: extra_float_digits
+#      PGBOUNCER_AUTH_TYPE: md5
+#      PGBOUNCER_AUTH_FILE: /bitnami/pgbouncer/userlist.txt
+#      POSTGRESQL_USERNAME: ${POSTGRES_USER:-turnikeuser}
+#      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD:-StrongSecurePass123!}
+#      POSTGRESQL_DATABASE: ${POSTGRES_DB:-turnikedb}
+#      <<: *common-env
+#    volumes:
+#      - ./pgbouncer/pgbouncer.ini:/opt/bitnami/pgbouncer/conf/pgbouncer.ini:ro
+#      - ./pgbouncer/userlist.txt:/bitnami/pgbouncer/userlist.txt:ro
+#    depends_on:
+#      - db
+#    ports:
+#      - "6432:6432"
+#    networks: [backend]
+#    logging: *default-logging
+
+  # 🔴 Redis (async caching va task queue)
+  redis:
+    image: redis:7-alpine
+    container_name: university_redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "60", "10000", "--appendonly", "yes"]
+    networks: [backend]
+    logging: *default-logging
+
+  # 💾 Backup (PostgreSQL auto-backup)
+  backup:
+    image: prodrigestivill/postgres-backup-local:16
+    container_name: university_backup
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:-turnikedb}
+      POSTGRES_USER: ${POSTGRES_USER:-turnikeuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-StrongSecurePass123!}
+      BACKUP_NUM_KEEP: 1
+      BACKUP_FREQUENCY: daily
+      BACKUP_SCHEDULE: "0 0 * * *"
+      SCHEDULE_TIMEZONE: Asia/Tashkent
+    volumes:
+      - pgbackups:/backups
+    depends_on:
+      - db
+    networks: [backend]
+    logging: *default-logging
