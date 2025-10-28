@@ -60,7 +60,7 @@ class UserAuthController:
             ip=self._client_ip(),
         )
 
-        redirect_path = "/admin_manage" if user.is_superadmin else "/dashboard"
+        redirect_path = "/admin_manage/users" if user.is_superadmin else "/dashboard"
 
         logger.info("✅ Login success: {} → {}", payload.username, redirect_path)
         return TokenResponse(

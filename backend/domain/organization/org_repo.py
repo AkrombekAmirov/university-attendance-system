@@ -163,6 +163,19 @@ class PositionRepository(BaseRepository[Position]):
             res = await session.execute(stmt)
             return res.scalar_one_or_none()
 
+    async def get_positions_by_org_unit(self, org_unit_id: UUID) -> List[Position]:
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(Position)
+                .where(
+                    Position.org_unit_id == org_unit_id,
+                    Position.is_deleted == False
+                )
+                .order_by(Position.order_no.asc(), Position.title.asc())
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
 
 # ============================================================
 # REPORTING LINK REPOSITORY
@@ -221,35 +234,6 @@ class ReportingLinkRepository(BaseRepository[ReportingLink]):
             ReportingLink.is_deleted == False
         )
         return await self.db.one_or_none(stmt)
-
-    # async def delete_link(
-    #     self,
-    #     parent_position_id: UUID,
-    #     child_position_id: UUID,
-    #     hard: bool = False
-    # ) -> bool:
-    #     """Bog‘lanishni soft/hard delete qiladi."""
-    #     async with self.db.session_scope() as session:
-    #         if hard:
-    #             stmt = delete(ReportingLink).where(
-    #                 and_(
-    #                     ReportingLink.parent_position_id == parent_position_id,
-    #                     ReportingLink.child_position_id == child_position_id
-    #                 )
-    #             )
-    #             await session.execute(stmt)
-    #         else:
-    #             stmt = select(ReportingLink).where(
-    #                 ReportingLink.parent_position_id == parent_position_id,
-    #                 ReportingLink.child_position_id == child_position_id,
-    #                 ReportingLink.is_deleted == False
-    #             )
-    #             obj = await self.db.one_or_none(stmt)
-    #             if obj:
-    #                 obj.is_deleted = True
-    #                 session.add(obj)
-    #         await session.commit()
-    #         return True
 
     async def list_all_active(self) -> List[ReportingLink]:
         """Barcha faol (soft delete bo‘lmagan) reporting linklarni qaytaradi."""

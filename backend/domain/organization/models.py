@@ -82,12 +82,6 @@ class Assignment(BaseSQLModel, table=True):
     valid_to: Optional[date] = Field(default=None)
 
     __table_args__ = (
-        Index(
-            "uq_active_assignment_per_position",
-            "position_id",
-            unique=True,
-            postgresql_where=text("status = 'ACTIVE'")
-        ),
         Index("idx_assignment_user_status", "user_id", "status"),
     )
 

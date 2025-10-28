@@ -19,7 +19,7 @@ frontend/package-lock.json
 # Next.js / Tailwind / Vite / ESLint
 frontend/.next/
 frontend/postcss.config.mjs
-frontend/tailwind.config.ts
+frontend/tailwind.config.js
 frontend/eslint.config.mjs
 frontend/turbo.json
 

@@ -70,7 +70,6 @@ class UserOut(BaseModel):
     username: str
     full_name: Optional[str]
     is_active: bool
-    # roles: Optional[List[str]]
     class Config:
         from_attributes = True
 

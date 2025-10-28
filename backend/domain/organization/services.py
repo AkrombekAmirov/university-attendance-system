@@ -62,6 +62,9 @@ class OrganizationService:
     async def get_position_list(self) -> List[Position]:
         return await self.pos_repo.get_position_list()
 
+    async def get_positions_by_org_unit(self, position_id: UUID) -> List[Position]:
+        return await self.pos_repo.get_by_unit(position_id)
+
     # ---------------- REPORTING LINK ----------------
     async def create_reporting_link(self, parent_position_id: UUID,
                                     child_position_id: UUID,
@@ -94,10 +97,6 @@ class OrganizationService:
                                 valid_from: date,
                                 valid_to: Optional[date] = None,
                                 status: str = "ACTIVE") -> Assignment:
-        if status == "ACTIVE":
-            existing = await self.assign_repo.check_active_assignment(position_id)
-            if existing:
-                raise HTTPException(status_code=400, detail="Bu lavozimga allaqachon faol foydalanuvchi biriktirilgan")
         return await self.assign_repo.create_assignment(
             user_id=user_id,
             position_id=position_id,

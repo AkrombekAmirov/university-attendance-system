@@ -81,6 +81,17 @@ async def create_position(
     current: User = Depends(get_current_user),
 ):
     return await ctrl.create_position(payload, current)
+@router.get(
+    "/positions/by-unit/{org_unit_id}",
+    response_model=list[PositionOut],
+    summary="Bo‘limga tegishli lavozimlar ro‘yxati",
+)
+async def get_positions_by_unit_endpoint(
+    org_unit_id: UUID,
+    current_user: User = Depends(get_current_user),
+    ctrl: OrganizationController = Depends(get_ctrl),
+):
+    return await ctrl.get_positions_by_unit_id(org_unit_id, current_user)
 
 
 @router.get("/positions/list", response_model=list[PositionOut])

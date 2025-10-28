@@ -136,6 +136,19 @@ class OrganizationController:
             logger.exception("❌ Position yaratishda xatolik: {}", str(e))
             raise HTTPException(status_code=500, detail="Ichki tizim xatoligi")
 
+    @audit_action(action="POSITION.BY_UNIT", entity_type="Position")
+    async def get_positions_by_unit_id(self, org_unit_id: UUID, actor: User) -> List[PositionOut]:
+        """Berilgan bo‘limga tegishli lavozimlar ro‘yxatini qaytaradi."""
+        try:
+            if not actor.is_superadmin:
+                raise HTTPException(status_code=403, detail="You are not authorized to view positions by unit")
+
+            positions = await self.svc.get_positions_by_org_unit(org_unit_id)
+            return [PositionOut.from_orm(pos) for pos in positions]
+        except Exception as e:
+            logger.exception("❌ Error fetching positions by unit: {}", str(e))
+            raise HTTPException(status_code=500, detail="Internal Server Error")
+
     @audit_action(action="ASSIGNMENT.CREATE", entity_type="Assignment")
     async def create_assignment(self, payload: AssignmentCreateIn, actor: User) -> AssignmentOut:
         if not actor.is_superadmin:
