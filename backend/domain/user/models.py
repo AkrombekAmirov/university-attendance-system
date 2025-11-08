@@ -104,6 +104,7 @@ class User(BaseSQLModel, table=True):
     birth_date: Optional[datetime] = Field(default=None)
     avatar_url: Optional[str] = Field(default=None, max_length=256)
     position_title: Optional[str] = Field(default=None, max_length=128)
+    turniked_id: Optional[str] = Field(default=None, max_length=12)
 
     meta: Optional[dict] = Field(default=None, sa_column=Column(JSONB))
     external_ids: Optional[dict] = Field(default=None, sa_column=Column(JSONB))

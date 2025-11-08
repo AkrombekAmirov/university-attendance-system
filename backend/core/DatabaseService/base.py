@@ -118,8 +118,8 @@ class DatabaseService:
             with contextlib.suppress(Exception):
                 await session.close()
 
-    def get_session(self) -> AsyncSession:
-        return self.sessions.get()
+    # def get_session(self) -> AsyncSession:
+    #     return self.sessions.get()
 
     @retry(
         wait=wait_exponential(multiplier=1, min=1, max=10),

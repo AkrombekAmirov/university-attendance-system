@@ -12,6 +12,8 @@ from backend.domain.organization.org_repo import (
 from backend.core.DatabaseService.base import DatabaseService
 from backend.domain.organization.models import Organization, OrgUnit, Position, ReportingLink, Assignment, \
     PositionClosure
+from backend.domain.turniked.turniked_repo import DeviceRepository
+from backend.domain.turniked.models import Device
 
 
 class OrganizationService:
@@ -25,6 +27,7 @@ class OrganizationService:
         self.link_repo = ReportingLinkRepository(self.db)
         self.assign_repo = AssignmentRepository(self.db)
         self.closure_repo = PositionClosureRepository(self.db)
+        self.device_repo = DeviceRepository(self.db)
 
     # ---------------- ORGANIZATION ----------------
     async def create_organization(self, name: str, code: Optional[str] = None,
@@ -39,6 +42,9 @@ class OrganizationService:
 
     async def search_organizations(self, keyword: str) -> List[Organization]:
         return await self.org_repo.search(keyword)
+
+    async def get_org_unit_by_user_id(self, user_id: UUID) -> Optional[UUID]:
+        return await self.unit_repo.get_org_unit_by_user_id(user_id)
 
     # ---------------- ORG UNIT ----------------
     async def create_org_unit(self, organization_id: UUID, name: str, unit_type: str,

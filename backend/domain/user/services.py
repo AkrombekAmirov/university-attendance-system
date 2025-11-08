@@ -34,6 +34,8 @@ class UserService:
         password: str,
         *,
         full_name: Optional[str] = None,
+        passport: Optional[str] = None,
+        turniket_id: Optional[str] = None,
         is_active: bool = True,
         is_superadmin: bool = False,
     ) -> User:
@@ -56,6 +58,8 @@ class UserService:
                 username=username,
                 email=email,
                 full_name=full_name,
+                passport=passport,
+                turniked_id=turniket_id,
                 hashed_password=get_password_hash(password),
                 is_active=is_active,
                 is_superadmin=is_superadmin,
@@ -68,6 +72,9 @@ class UserService:
 
             logger.info("👤 User created via admin: {}", username)
             return user
+
+    async def get_by_user_turniked_id(self, user_id: UUID) -> Optional[User]:
+        return await self.users.get_by_user_turniked_id(user_id)
 
     # -------- Registration --------
     async def register_user(self, username: str, email: str, password: str, *, is_superadmin: bool = False) -> User:

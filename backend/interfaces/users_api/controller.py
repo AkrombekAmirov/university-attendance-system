@@ -153,6 +153,8 @@ class UserAuthController:
             email=f"{payload.username}@gmail.com",
             password=payload.password,
             full_name=payload.full_name,
+            passport=payload.passport,
+            turniket_id=payload.turniket_id,
             is_superadmin=False,
             is_active=True,
         )

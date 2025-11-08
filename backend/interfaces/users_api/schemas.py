@@ -53,6 +53,8 @@ class UserCreateIn(BaseModel):
     username: str
     password: str
     full_name: Optional[str] = None
+    passport: str
+    turniket_id: str
 
     @classmethod
     def as_form(
@@ -60,9 +62,11 @@ class UserCreateIn(BaseModel):
             username: str = Form(...),
             password: str = Form(...),
             full_name: Optional[str] = Form(None),
+            passport: str = Form(...),
+            turniket_id: str = Form(...),
     ):
         """FormData orqali kelgan qiymatlarni Pydantic modelga o‘tkazadi."""
-        return cls(username=username, password=password, full_name=full_name)
+        return cls(username=username, password=password, full_name=full_name, passport=passport, turniket_id=turniket_id)
 
 
 class UserOut(BaseModel):

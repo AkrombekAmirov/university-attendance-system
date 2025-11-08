@@ -23,6 +23,29 @@ class OrganizationRepository(BaseRepository[Organization]):
     def __init__(self, db: Optional[DatabaseService] = None):
         super().__init__(Organization, db)
 
+    async def get_org_unit_by_user_id_(self, user_id: UUID) -> Optional[UUID]:
+        """
+        Userning faol assignment'i orqali unga tegishli OrgUnit (bo'lim) ID sini topadi.
+        return: OrgUnit ID (yoki None)
+        """
+
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(OrgUnit.id)
+                .join(Position, Position.org_unit_id == OrgUnit.id)
+                .join(Assignment, Assignment.position_id == Position.id)
+                .where(
+                    Assignment.user_id == user_id,
+                    Assignment.status == "ACTIVE",
+                    Assignment.is_deleted == False,
+                    Position.is_deleted == False,
+                    OrgUnit.is_deleted == False,
+                )
+                .limit(1)
+            )
+        res = await session.execute(stmt)
+        return res.scalar_one_or_none()
+
     async def create_organization(self, name: str, code: Optional[str], description: Optional[str]) -> Organization:
         org = Organization(name=name, code=code, description=description)
         return await self.create(org)
@@ -83,6 +106,26 @@ class OrgUnitRepository(BaseRepository[OrgUnit]):
         created.path = f"{parent_path}{created.id}/"
         await self.update(created)
         return created
+
+    async def get_org_unit_by_user_id(self, user_id: UUID) -> Optional[UUID]:
+        """
+        Foydalanuvchi qaysi org_unitga tegishliligini assignment → position → org_unit orqali aniqlaydi
+        """
+
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(OrgUnit.id)
+                .join(Position, Position.org_unit_id == OrgUnit.id)
+                .join(Assignment, Assignment.position_id == Position.id)
+                .where(
+                    Assignment.user_id == user_id,
+                )
+                .limit(1)
+            )
+
+            res = await session.execute(stmt)
+            org_unit_id = res.scalar_one_or_none()
+            return org_unit_id
 
     async def get_all_by_org(self, organization_id: UUID) -> List[OrgUnit]:
         """Tashkilot bo‘yicha barcha bo‘linmalarni olish."""

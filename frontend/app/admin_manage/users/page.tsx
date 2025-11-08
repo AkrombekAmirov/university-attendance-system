@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,16 +13,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-// ✅ Validation schema
+// ✅ Validatsiya sxemasi
 const userSchema = z.object({
     username: z.string().min(3, "Kamida 3 ta belgi bo‘lishi kerak").max(64),
     password: z.string().min(8, "Parol kamida 8 ta belgidan iborat bo‘lishi kerak"),
     full_name: z.string().optional(),
+    passport: z.string().min(4, "Passport raqami noto‘g‘ri").optional(),
+    turniket_id: z.string().min(1, "Turniket ID bo‘sh bo‘lmasligi kerak").optional(),
 });
 
 type FormValues = z.infer<typeof userSchema>;
 
-// ✅ Xatoliklarni aniqlovchi funksiya
 function parseError(e: any): string {
     const data = e?.response?.data ?? e?.data ?? e;
     if (data?.detail) {
@@ -34,7 +35,7 @@ function parseError(e: any): string {
     return "❌ Xatolik yuz berdi, iltimos qayta urinib ko‘ring.";
 }
 
-// ✅ Modal komponent
+// ✅ Foydalanuvchi yaratish modali
 function UserCreateModal({
                              isOpen,
                              onClose,
@@ -55,7 +56,13 @@ function UserCreateModal({
         reset,
     } = useForm<FormValues>({
         resolver: zodResolver(userSchema),
-        defaultValues: { username: "", password: "", full_name: "" },
+        defaultValues: {
+            username: "",
+            password: "",
+            full_name: "",
+            passport: "",
+            turniket_id: "",
+        },
     });
 
     const onCreateUser = async (values: FormValues) => {
@@ -67,6 +74,8 @@ function UserCreateModal({
             form.set("username", values.username);
             form.set("password", values.password);
             if (values.full_name) form.set("full_name", values.full_name);
+            if (values.passport) form.set("passport", values.passport);
+            if (values.turniket_id) form.set("turniket_id", values.turniket_id);
 
             const { data } = await api.post("/users/create_simple", form);
             setNotice(`✅ Foydalanuvchi yaratildi: ${data.username}`);
@@ -162,13 +171,32 @@ function UserCreateModal({
                                         />
                                     </div>
 
+                                    <div>
+                                        <label className="text-sm font-medium">Passport (ixtiyoriy)</label>
+                                        <Input
+                                            placeholder="AA1234567"
+                                            {...register("passport")}
+                                            className="mt-1 h-10"
+                                        />
+                                        {errors.passport && (
+                                            <p className="text-xs text-red-500 mt-1">{errors.passport.message}</p>
+                                        )}
+                                    </div>
+
+                                    <div>
+                                        <label className="text-sm font-medium">Turniket ID (ixtiyoriy)</label>
+                                        <Input
+                                            placeholder="123456"
+                                            {...register("turniket_id")}
+                                            className="mt-1 h-10"
+                                        />
+                                        {errors.turniket_id && (
+                                            <p className="text-xs text-red-500 mt-1">{errors.turniket_id.message}</p>
+                                        )}
+                                    </div>
+
                                     <div className="flex gap-3 pt-4">
-                                        <Button
-                                            type="button"
-                                            onClick={onClose}
-                                            variant="outline"
-                                            className="flex-1"
-                                        >
+                                        <Button type="button" onClick={onClose} variant="outline" className="flex-1">
                                             Bekor qilish
                                         </Button>
                                         <Button
@@ -189,14 +217,13 @@ function UserCreateModal({
     );
 }
 
-// ✅ Asosiy sahifa
+// ✅ Sahifa
 export default function UserManagementPage() {
     const [me, setMe] = useState<any>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [users, setUsers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
-    // ✅ Avtorizatsiya tekshiruvi
     useEffect(() => {
         (async () => {
             const info = await fetchMe();
@@ -212,19 +239,15 @@ export default function UserManagementPage() {
         })();
     }, []);
 
-    // ✅ Yangi user yaratilganda qayta yuklash
     const handleUserCreated = async () => {
-        // Backenddan real ro‘yxat olish (agar endpoint mavjud bo‘lsa)
         // const { data } = await api.get("/users/list");
         // setUsers(data);
-        // Hozircha mock ma'lumot sifatida yangilamaymiz
     };
 
     if (!me) return null;
 
     return (
         <div className="min-h-screen px-6 py-10 space-y-6 bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-900 dark:to-slate-800">
-            {/* Header */}
             <motion.div
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -249,7 +272,6 @@ export default function UserManagementPage() {
                 </motion.button>
             </motion.div>
 
-            {/* Users List Card */}
             <Card className="shadow-lg border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
                 <CardHeader className="border-b border-slate-200 dark:border-slate-800">
                     <CardTitle className="text-lg font-semibold">
@@ -261,7 +283,6 @@ export default function UserManagementPage() {
                 </CardContent>
             </Card>
 
-            {/* Modal */}
             <UserCreateModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}

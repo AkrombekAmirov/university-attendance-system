@@ -18,6 +18,11 @@ class UserRepository(BaseRepository[User]):
             res = await s.execute(select(User).where(User.username == username, User.is_deleted == False))
             return res.scalar_one_or_none()
 
+    async def get_by_user_turniked_id(self, turniked_id: UUID) -> Optional[User]:
+        async with self.db.session_scope() as s:
+            res = await s.execute(select(User).where(User.turniked_id == turniked_id, User.is_deleted == False))
+            return res.scalar_one_or_none()
+
     async def get_by_email(self, email: str) -> Optional[User]:
         async with self.db.session_scope() as s:
             res = await s.execute(select(User).where(User.email == email, User.is_deleted == False))
