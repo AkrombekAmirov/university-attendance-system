@@ -1,7 +1,9 @@
 from __future__ import annotations
-from typing import Optional, Tuple, List
-from uuid import UUID
+from typing import Optional, Tuple, List, Dict
+from dataclasses import dataclass
 from sqlmodel import select
+from datetime import date
+from uuid import UUID
 
 from backend.core.DatabaseService.base import DatabaseService
 from backend.core.security import (
@@ -12,11 +14,18 @@ from backend.core.security import (
 from backend.core.config import get_settings
 from backend.core.LoggingService import logger
 from backend.domain.user.user_repo import UserRepository, RefreshSessionRepository, MFARepository
-from backend.domain.organization.org_repo import PositionRepository
+from backend.domain.organization.org_repo import PositionRepository, OrgUnitRepository, PositionClosureRepository, AssignmentRepository
 from backend.domain.organization.models import Position
 from backend.domain.user.models import User
+from backend.domain.organization.models import Assignment
 
 settings = get_settings()
+
+@dataclass
+class UserStaffDTO:
+    id: UUID
+    full_name: str
+    position: str | None
 
 class UserService:
     def __init__(self, db: DatabaseService | None = None):
@@ -25,6 +34,9 @@ class UserService:
         self.sessions = RefreshSessionRepository(self.db)
         self.mfa = MFARepository(self.db)
         self.pos_repo = PositionRepository(self.db)
+        self.unit_repo = OrgUnitRepository(self.db)
+        self.closure_repo = PositionClosureRepository(self.db)
+        self.assign_repo = AssignmentRepository(self.db)
 
     # -------- Admin-side creation --------
     async def create_user(
@@ -160,6 +172,169 @@ class UserService:
 
     async def get_user_position(self, position_id: UUID) -> Optional[Position]:
         return await self.pos_repo.get_by_id(position_id)
+
+    async def get_many_by_ids(self, ids: List[UUID]) -> List[UserStaffDTO]:
+        """
+        Staff ro‘yxatini lavozim sarlavhasi bilan qaytaradi.
+        Batch ishlaydi, N+1 yo‘q.
+        """
+        users = await self.users.get_many_by_ids(ids)
+        if not users:
+            return []
+
+        uid_list = [u.id for u in users]
+        today = date.today()
+
+        async with self.db.session_scope() as s:
+            stmt = (
+                select(Assignment.user_id, Position.title)
+                .join(Position, Position.id == Assignment.position_id)
+                .where(
+                    Assignment.user_id.in_(uid_list),
+                    Assignment.status == "ACTIVE",
+                    Assignment.is_deleted == False,
+                    Position.is_deleted == False,
+                    Assignment.valid_from <= today,
+                    # valid_to None yoki kelajak
+                    ((Assignment.valid_to.is_(None)) | (Assignment.valid_to >= today))
+                )
+            )
+            res = await s.execute(stmt)
+            rows = res.all()
+
+        # Har user uchun bitta asosiy sarlavha (bir nechta bo‘lsa – birinchisini olamiz)
+        title_map: Dict[UUID, str] = {}
+        for user_id, title in rows:
+            if user_id not in title_map:
+                title_map[user_id] = title
+
+        out: List[UserStaffDTO] = []
+        for u in users:
+            out.append(UserStaffDTO(
+                id=u.id,
+                full_name=u.full_name or u.username,
+                position=title_map.get(u.id)
+            ))
+        return out
+
+    async def get_staff_by_unit(self, user_id: UUID, unit_id: UUID | None):
+        # Barcha subordinat userlarni topamiz
+        subordinate_ids = await self.assign_repo.get_users_by_subordinates(user_id)
+
+        if not subordinate_ids:
+            return []
+
+        # Agar unit_id bo‘lsa — shu org_unit ichida filtrlaymiz
+        today = date.today()
+
+        async with self.db.session_scope() as s:
+            stmt = (
+                select(Assignment.user_id, Position.title, Position.org_unit_id)
+                .join(Position, Position.id == Assignment.position_id)
+                .where(
+                    Assignment.user_id.in_(subordinate_ids),
+                    Assignment.status == "ACTIVE",
+                    Assignment.is_deleted == False,
+                    Position.is_deleted == False,
+                    Assignment.valid_from <= today,
+                    ((Assignment.valid_to.is_(None)) | (Assignment.valid_to >= today))
+                )
+            )
+            res = await s.execute(stmt)
+            rows = res.all()
+
+        title_map = {}
+        unit_map = {}
+
+        for uid, title, ouid in rows:
+            if uid not in title_map:
+                title_map[uid] = title
+                unit_map[uid] = ouid
+
+        # ✅ Unit filtering
+        filtered = []
+        for uid in subordinate_ids:
+            if unit_id and unit_map.get(uid) != unit_id:
+                continue  # skip if not match
+
+            filtered.append(UserStaffDTO(
+                id=uid,
+                full_name=(await self.users.get_by_id(uid)).full_name,
+                position=title_map.get(uid)
+            ))
+
+        return filtered
+
+    async def build_org_tree(self, current_user_id: UUID, subordinate_ids: List[UUID]) -> dict:
+        # 1️⃣ Rahbarning asosiy lavozimi
+        pos_id = await self.unit_repo.get_active_position_by_user(current_user_id)
+        if not pos_id:
+            return {"id": current_user_id, "units": []}
+
+        # 2️⃣ OrgUnit topamiz
+        org_unit_id = await self.unit_repo.get_org_unit_by_user_id(current_user_id)
+        if not org_unit_id:
+            return {"id": current_user_id, "units": []}
+
+        # 3️⃣ Root org unit
+        root_unit = await self.unit_repo.get(org_unit_id)
+
+        # 4️⃣ Position closure (rahbar nazoratidagi positionlar)
+        child_positions = await self.closure_repo.get_child_positions(pos_id)
+        position_ids = list(set(child_positions + [pos_id]))
+
+        # 5️⃣ Position → staff mapping
+        staff_ids = await self.assign_repo.get_users_by_positions(position_ids)
+        staff_ids = [uid for uid in staff_ids if uid != current_user_id]
+
+        staff_dtos = await self.get_many_by_ids(staff_ids)
+
+        staff_map: Dict[UUID, List] = {pid: [] for pid in position_ids}
+        for s in staff_dtos:
+            # s = UserStaffDTO
+            for pid in position_ids:
+                staff_map[pid].append({
+                    "id": s.id,
+                    "full_name": s.full_name,
+                    "position": s.position
+                })
+
+        # 6️⃣ Recursive unit builder
+        async def build_nodes(unit):
+            positions = await self.pos_repo.get_positions_by_org_unit(unit.id)
+
+            pos_nodes = []
+            for p in positions:
+                pos_nodes.append({
+                    "id": p.id,
+                    "title": p.title,
+                    "staff": staff_map.get(p.id, []),
+                    "children": []
+                })
+
+            children_units = await self.unit_repo.get_children(unit.id)
+
+            return {
+                "id": unit.id,
+                "name": unit.name,
+                "unit_type": unit.unit_type,
+                "positions": pos_nodes,
+                "children": [
+                    await build_nodes(child)
+                    for child in children_units
+                ]
+            }
+
+        tree = await build_nodes(root_unit)
+
+        current_user = await self.users.get_by_id(current_user_id)
+
+        return {
+            "id": current_user_id,
+            "full_name": current_user.full_name or current_user.username,
+            "position": (await self.pos_repo.get_by_id(pos_id)).title,
+            "units": [tree]
+        }
 
 def settings_now():
     from datetime import datetime, timezone

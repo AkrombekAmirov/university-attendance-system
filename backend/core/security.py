@@ -12,9 +12,7 @@ from pydantic import BaseModel, Field
 
 from backend.core.config import get_settings
 from backend.core.DatabaseService.base import DatabaseService, get_db
-from backend.domain.user.user_repo import (
-    UserRepository, RefreshSessionRepository
-)
+from backend.domain.user.user_repo import RefreshSessionRepository
 from backend.domain.user.models import User, RefreshSession
 
 

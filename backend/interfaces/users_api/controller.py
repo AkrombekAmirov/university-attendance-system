@@ -60,7 +60,7 @@ class UserAuthController:
             ip=self._client_ip(),
         )
 
-        redirect_path = "/admin_manage/users" if user.is_superadmin else "/dashboard"
+        redirect_path = "/admin_manage/users" if user.is_superadmin else "/staff/users"
 
         logger.info("✅ Login success: {} → {}", payload.username, redirect_path)
         return TokenResponse(
@@ -84,7 +84,7 @@ class UserAuthController:
         )
 
         user = await self.svc.users.get_by_id(user_id)
-        redirect_path = "/admin" if (user and user.is_superadmin) else "/dashboard"
+        redirect_path = "/admin_manage/users" if (user and user.is_superadmin) else "/staff/users"
 
         return TokenResponse(
             access_token=access,
@@ -114,7 +114,7 @@ class UserAuthController:
             is_superadmin=payload.is_superadmin,
         )
 
-        redirect_path = "/admin" if user.is_superadmin else "/dashboard"
+        redirect_path = "/admin_manage/users" if user.is_superadmin else "/staff/users"
 
         return MeOut(
             id=user.id,
@@ -129,7 +129,7 @@ class UserAuthController:
 
     async def me(self, current: User) -> MeOut:
         """Foydalanuvchi o‘z profilini olish."""
-        redirect_path = "/admin" if current.is_superadmin else "/dashboard"
+        redirect_path = "/admin_manage/users" if current.is_superadmin else "/staff/users"
         return MeOut(
             id=current.id,
             username=current.username,

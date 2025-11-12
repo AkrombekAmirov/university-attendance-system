@@ -29,4 +29,4 @@ def decide_redirect(roles: List[str], is_superadmin: bool) -> str:
     for code in roles:
         if code in _ROLE_REDIRECTS:
             return _ROLE_REDIRECTS[code]
-    return "/user/home"
+    return "/user/users"

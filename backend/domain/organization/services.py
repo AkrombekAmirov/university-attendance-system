@@ -47,6 +47,23 @@ class OrganizationService:
         return await self.unit_repo.get_org_unit_by_user_id(user_id)
 
     # ---------------- ORG UNIT ----------------
+    async def get_user_scope(self, user_id: UUID):
+        # 1) User position topish
+        pos_id = await self.unit_repo.get_active_position_by_user(user_id)
+        if not pos_id:
+            return {"units": [], "positions": [], "users": [user_id]}
+
+        # 2) Shu pozitsiyaga bo‘ysunuvchilar
+        positions = await self.closure_repo.get_child_positions(pos_id)
+
+        # 3) Ularga biriktirilgan users
+        users = await self.assign_repo.get_users_by_positions(positions)
+
+        return {
+            "positions": positions,
+            "users": users if users else [user_id]
+        }
+
     async def create_org_unit(self, organization_id: UUID, name: str, unit_type: str,
                               parent_id: Optional[UUID] = None, order_no: int = 0) -> OrgUnit:
         return await self.unit_repo.create_unit(organization_id, name, unit_type, parent_id, order_no)
@@ -125,7 +142,7 @@ class OrganizationService:
                              child_id: UUID,
                              parent_id: UUID,
                              created_by: Optional[UUID] = None) -> list[PositionClosure]:
-        return await self.closure_repo.insert_closure(child_id, parent_id, created_by)
+        return await self.closure_repo.insert_closure(child_id, parent_id)
 
     async def bulk_create_position_closures(self, closures: List[PositionClosure]) -> List[PositionClosure]:
         return await self.closure_repo.bulk_create_closures(closures)

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import date
 from uuid import UUID
 
@@ -9,6 +9,7 @@ from backend.core.DatabaseService.repositories import BaseRepository
 from backend.domain.organization.models import (
     Organization, OrgUnit, Position, Assignment, ReportingLink, PositionClosure
 )
+from backend.domain.user.models import User
 
 
 # ============================================================
@@ -81,7 +82,11 @@ class OrganizationRepository(BaseRepository[Organization]):
 # ============================================================
 
 class OrgUnitRepository(BaseRepository[OrgUnit]):
-    """Tashkilot ichidagi bo‘linmalar (fakultet, markaz, bo‘lim) bilan ishlash."""
+    """Tashkilot ichidagi bo‘linmalar (fakultet, markaz, bo‘lim) bilan ishlash.
+
+    Yangi: rahbar foydalanuvchi (prorektor, bo'lim boshlig'i va h.k.) tizimga kirganda,
+    unga tegishli bo'linmalar va shu bo'linmalardagi ishchi xodimlarni qaytaruvchi yordamchi metod.
+    """
 
     def __init__(self, db: Optional[DatabaseService] = None):
         super().__init__(OrgUnit, db)
@@ -106,6 +111,159 @@ class OrgUnitRepository(BaseRepository[OrgUnit]):
         created.path = f"{parent_path}{created.id}/"
         await self.update(created)
         return created
+
+    async def get_active_position_by_user(self, user_id: UUID) -> Optional[UUID]:
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(Assignment.position_id)
+                .where(
+                    Assignment.user_id == user_id,
+                    Assignment.status == "ACTIVE",
+                    Assignment.is_deleted == False
+                )
+                .limit(1)
+            )
+            res = await session.execute(stmt)
+            return res.scalar_one_or_none()
+
+    async def get_units_and_staff_for_user(self, user_id: UUID) -> Dict[str, Any]:
+        """
+        Berilgan foydalanuvchi (rahbar) uchun ko'rinish doirasidagi bo'linmalar va xodimlar ro'yxatini qaytaradi.
+
+        Qoidalar:
+        - Foydalanuvchining faol assignmentlari orqali uning position(lar)i olinadi.
+        - Agar PositionClosure jadvalida ushbu position(lar) parent sifatida mavjud bo'lsa,
+          barcha child position(lar) (depth >= 1) boshqaruv ostida deb qabul qilinadi.
+        - Agar PositionClosure topilmasa (fallback), foydalanuvchining o'zi biriktirilgan org_unit(lar) dagi
+          barcha position(lar) olinadi (bo'lim boshlig'i ssenariysi uchun mos).
+        - Shu target position(lar) bo'yicha ACTIVE assignment'li foydalanuvchilar olinadi.
+
+        Natija struktura:
+        {
+            "units": [
+                {
+                    "unit": {"id": UUID, "name": str, "unit_type": str},
+                    "staff": [
+                        {"id": UUID, "full_name": str | None, "username": str, "position_title": str | None}
+                    ]
+                }, ...
+            ],
+            "position_count": int,
+            "staff_count": int
+        }
+        """
+        today = date.today()
+        async with self.db.session_scope() as session:
+            # 1) Foydalanuvchining faol position(lar)i
+            stmt_my_pos = (
+                select(Position.id, Position.org_unit_id)
+                .join(Assignment, Assignment.position_id == Position.id)
+                .where(
+                    Assignment.user_id == user_id,
+                    Assignment.status == "ACTIVE",
+                    Assignment.is_deleted == False,
+                    Position.is_deleted == False,
+                    or_(Assignment.valid_to.is_(None), Assignment.valid_to >= today),
+                    Assignment.valid_from <= today,
+                )
+            )
+            res_my_pos = await session.execute(stmt_my_pos)
+            rows = res_my_pos.all()
+            my_position_ids = {r[0] for r in rows}
+            my_org_unit_ids = {r[1] for r in rows}
+
+            target_position_ids: set[UUID] = set()
+
+            if my_position_ids:
+                # 2) PositionClosure orqali bo'ysinuvchi position(lar)
+                stmt_children = (
+                    select(PositionClosure.child_position_id, Position.org_unit_id)
+                    .join(Position, Position.id == PositionClosure.child_position_id)
+                    .where(
+                        PositionClosure.parent_position_id.in_(my_position_ids),
+                        PositionClosure.depth >= 1,
+                        PositionClosure.is_deleted == False,
+                        Position.is_deleted == False,
+                    )
+                )
+                res_children = await session.execute(stmt_children)
+                child_rows = res_children.all()
+                target_position_ids = {r[0] for r in child_rows}
+                child_org_unit_ids = {r[1] for r in child_rows}
+            else:
+                child_org_unit_ids = set()
+
+            # 3) Agar closure topilmagan bo'lsa, fallback: o'z org_unit(lar)idagi barcha position(lar)
+            if not target_position_ids and my_org_unit_ids:
+                stmt_fallback_pos = select(Position.id).where(
+                    Position.org_unit_id.in_(my_org_unit_ids),
+                    Position.is_deleted == False,
+                )
+                res_fb = await session.execute(stmt_fallback_pos)
+                target_position_ids = set(res_fb.scalars().all())
+                child_org_unit_ids = set(my_org_unit_ids)
+
+            # Hech narsa topilmasa, bo'sh natija
+            if not target_position_ids:
+                return {"units": [], "position_count": 0, "staff_count": 0}
+
+            # 4) Target org_unitlar obyektlari
+            unit_ids = list(child_org_unit_ids)
+            stmt_units = select(OrgUnit).where(OrgUnit.id.in_(unit_ids), OrgUnit.is_deleted == False)
+            res_units = await session.execute(stmt_units)
+            units = list(res_units.scalars().all())
+
+            # 5) Target position(lar) bo'yicha ACTIVE assignmentlar va foydalanuvchilar
+            stmt_staff = (
+                select(User, Position, OrgUnit)
+                .join(Assignment, Assignment.user_id == User.id)
+                .join(Position, Position.id == Assignment.position_id)
+                .join(OrgUnit, OrgUnit.id == Position.org_unit_id)
+                .where(
+                    Assignment.position_id.in_(list(target_position_ids)),
+                    Assignment.status == "ACTIVE",
+                    Assignment.is_deleted == False,
+                    or_(Assignment.valid_to.is_(None), Assignment.valid_to >= today),
+                    Assignment.valid_from <= today,
+                    User.is_deleted == False,
+                    User.is_active == True,
+                    Position.is_deleted == False,
+                    OrgUnit.is_deleted == False,
+                )
+            )
+            res_staff = await session.execute(stmt_staff)
+            staff_rows = res_staff.all()
+
+            # 6) Natijani yig'ish
+            unit_map: Dict[UUID, Dict[str, Any]] = {}
+            for u in units:
+                unit_map[u.id] = {
+                    "unit": {"id": u.id, "name": u.name, "unit_type": u.unit_type},
+                    "staff": [],
+                }
+
+            for u, pos, ou in staff_rows:
+                entry = {
+                    "id": u.id,
+                    "full_name": u.full_name,
+                    "username": u.username,
+                    "position_title": pos.title,
+                }
+                if ou.id not in unit_map:
+                    unit_map[ou.id] = {
+                        "unit": {"id": ou.id, "name": ou.name, "unit_type": ou.unit_type},
+                        "staff": [entry],
+                    }
+                else:
+                    unit_map[ou.id]["staff"].append(entry)
+
+            staff_count = sum(len(v["staff"]) for v in unit_map.values())
+
+            return {
+                "units": list(unit_map.values()),
+                "position_count": len(target_position_ids),
+                "staff_count": staff_count,
+            }
 
     async def get_org_unit_by_user_id(self, user_id: UUID) -> Optional[UUID]:
         """
@@ -304,6 +462,118 @@ class AssignmentRepository(BaseRepository[Assignment]):
         )
         return await self.db.one_or_none(stmt)
 
+    async def get_active_user_ids_by_unit(self, unit_id: UUID) -> List[UUID]:
+        today = date.today()
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(Assignment.user_id)
+                .join(Position, Position.id == Assignment.position_id)
+                .where(
+                    Position.org_unit_id == unit_id,
+                    Position.is_deleted == False,
+                    Assignment.status == "ACTIVE",
+                    Assignment.is_deleted == False,
+                    Assignment.valid_from <= today,
+                    ((Assignment.valid_to.is_(None)) | (Assignment.valid_to >= today))
+                )
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+            # unique preserve order
+            seen, out = set(), []
+            for uid in rows:
+                if uid not in seen:
+                    seen.add(uid)
+                    out.append(uid)
+            return out
+
+    async def get_active_titles_for_users(self, user_ids: List[UUID]) -> List[Tuple[UUID, str]]:
+        """User → birlamchi (birinchi topilgan) lavozim nomi."""
+        if not user_ids:
+            return []
+        today = date.today()
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(Assignment.user_id, Position.title)
+                .join(Position, Position.id == Assignment.position_id)
+                .where(
+                    Assignment.user_id.in_(user_ids),
+                    Assignment.status == "ACTIVE",
+                    Assignment.is_deleted == False,
+                    Position.is_deleted == False,
+                    Assignment.valid_from <= today,
+                    ((Assignment.valid_to.is_(None)) | (Assignment.valid_to >= today))
+                )
+            )
+            rows = (await session.execute(stmt)).all()
+            # user_id -> first title
+            title_map: Dict[UUID, str] = {}
+            for uid, title in rows:
+                if uid not in title_map:
+                    title_map[uid] = title
+            return list(title_map.items())
+
+    async def get_users_by_subordinates(self, user_id: UUID) -> list[UUID]:
+        today = date.today()
+
+        async with self.db.session_scope() as session:
+            # Select current user's position
+            pos_stmt = (
+                select(Assignment.position_id)
+                .where(
+                    Assignment.user_id == user_id,
+                    Assignment.status == "ACTIVE",
+                    Assignment.valid_from <= today,
+                    ((Assignment.valid_to.is_(None)) | (Assignment.valid_to >= today))
+                )
+            )
+            current_positions = (await session.execute(pos_stmt)).scalars().all()
+
+            if not current_positions:
+                return []
+
+            # ✅ Get subordinate positions via PositionClosure
+            pos_tree = (
+                select(PositionClosure.child_position_id)
+                .join(Position, Position.id == PositionClosure.child_position_id)
+                .where(
+                    PositionClosure.parent_position_id.in_(current_positions),
+                    PositionClosure.depth >= 0,  # ✅ self + subordinates
+                    Position.is_deleted == False
+                )
+            )
+
+            subordinate_positions = (await session.execute(pos_tree)).scalars().all()
+
+            if not subordinate_positions:
+                return []
+
+            # ✅ Get users of those positions
+            stmt = (
+                select(Assignment.user_id)
+                .where(
+                    Assignment.position_id.in_(subordinate_positions),
+                    Assignment.status == "ACTIVE",
+                    Assignment.valid_from <= today,
+                    ((Assignment.valid_to.is_(None)) | (Assignment.valid_to >= today))
+                )
+            )
+            users = (await session.execute(stmt)).scalars().all()
+
+            return list(set(users))  # unique users
+
+    async def get_users_by_positions(self, position_ids: List[UUID]) -> List[UUID]:
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(Assignment.user_id)
+                .where(
+                    Assignment.position_id.in_(position_ids),
+                    Assignment.status == "ACTIVE",
+                    Assignment.is_deleted == False
+                )
+            )
+            res = await session.execute(stmt)
+            return [r[0] for r in res.all()]
+
     async def create_assignment(
             self,
             user_id: UUID,
@@ -354,6 +624,15 @@ class PositionClosureRepository(BaseRepository[PositionClosure]):
         )
         return await self.create(closure)
 
+    async def get_child_positions(self, parent_position_id: UUID) -> List[UUID]:
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(PositionClosure.child_position_id)
+                .where(PositionClosure.parent_position_id == parent_position_id)
+            )
+            res = await session.execute(stmt)
+            return [r[0] for r in res.all()]
+
     # ------------------------------------------------------------
     # Ko‘p sonli closurelarni bulk tarzda yaratish
     # ------------------------------------------------------------
@@ -363,63 +642,54 @@ class PositionClosureRepository(BaseRepository[PositionClosure]):
     # ------------------------------------------------------------
     # Rekursiv ierarxiyani avtomatik kiritish (asosiy funksiya)
     # ------------------------------------------------------------
-    async def insert_closure(
-            self,
-            child_id: UUID,
-            parent_id: UUID,
-            created_by: Optional[UUID] = None
-    ) -> list[PositionClosure]:
-        """
-        Yangi child lavozim uchun barcha parent chain asosida closure yozuvlarini yaratadi.
-        Har bir parent uchun depth += 1 qilib qo‘shiladi.
-        """
-        closures_to_create: list[PositionClosure] = []
+    async def insert_closure(self, child_id: UUID, parent_id: Optional[UUID]):
+        closures: list[PositionClosure] = []
 
-        # 1️⃣ Avval parent_id uchun mavjud barcha yuqori parentlarni olamiz
-        parent_chain = await self.get_by_child(parent_id)
+        # ✅ 1) Always add self reference (child → child, depth=0)
+        if not await self.check_if_exists(child_id, child_id):
+            closures.append(PositionClosure(
+                parent_position_id=child_id,
+                child_position_id=child_id,
+                depth=0
+            ))
 
-        # 2️⃣ Har bir yuqori parent uchun yangi yozuv (child_id uchun)
-        for closure in parent_chain:
-            exists = await self.check_if_exists(closure.parent_position_id, child_id)
+        # ✅ 2) Root node bo‘lsa — faqat self closure
+        if not parent_id:
+            if closures:
+                await self.bulk_create(closures)
+            return
+
+        # ✅ 3) Direct parent → child (depth = 1)
+        if not await self.check_if_exists(parent_id, child_id):
+            closures.append(PositionClosure(
+                parent_position_id=parent_id,
+                child_position_id=child_id,
+                depth=1
+            ))
+
+        # ✅ 4) Parentning barcha ajdodlari → child
+        parent_ancestors = await self.get_by_child(parent_id)
+
+        for ancestor in parent_ancestors:
+            if ancestor.parent_position_id == parent_id and ancestor.child_position_id == parent_id:
+                # skip parent's self loop to avoid duplicate
+                continue
+
+            exists = await self.check_if_exists(ancestor.parent_position_id, child_id)
             if not exists:
-                closures_to_create.append(
-                    PositionClosure(
-                        parent_position_id=closure.parent_position_id,
-                        child_position_id=child_id,
-                        depth=closure.depth + 1,
-                        created_by=created_by,
-                    )
-                )
-
-        # 3️⃣ Bevosita parent uchun (depth = 1)
-        direct_exists = await self.check_if_exists(parent_id, child_id)
-        if not direct_exists:
-            closures_to_create.append(
-                PositionClosure(
-                    parent_position_id=parent_id,
+                closures.append(PositionClosure(
+                    parent_position_id=ancestor.parent_position_id,
                     child_position_id=child_id,
-                    depth=1,
-                    created_by=created_by,
-                )
-            )
+                    depth=ancestor.depth + 1
+                ))
 
-        # 4️⃣ O‘zi uchun yozuv (reflexive node, depth = 0)
-        self_exists = await self.check_if_exists(child_id, child_id)
-        if not self_exists:
-            closures_to_create.append(
-                PositionClosure(
-                    parent_position_id=child_id,
-                    child_position_id=child_id,
-                    depth=0,
-                    created_by=created_by,
-                )
-            )
-
-        # 5️⃣ Bulk insert orqali bazaga kiritamiz
-        if closures_to_create:
-            await self.bulk_create(closures_to_create)
-
-        return closures_to_create
+        # ✅ 5) Bulk insert with safety
+        if closures:
+            try:
+                await self.bulk_create(closures)
+            except Exception as e:
+                # 💡 Ignore duplicates silently (race-safe)
+                pass
 
     # ------------------------------------------------------------
     # Yordamchi funksiyalar

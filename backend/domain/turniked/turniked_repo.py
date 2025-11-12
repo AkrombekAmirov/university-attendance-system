@@ -8,9 +8,9 @@ from backend.domain.user.models import User
 
 from backend.core.DatabaseService.base import DatabaseService
 from backend.core.DatabaseService.repositories import BaseRepository
-from backend.domain.turniked.models import AttendanceEvent, DailyAttendance, MonthlyAttendanceSummary, Device
 from backend.domain.organization.org_repo import OrganizationRepository
 from backend.domain.user.user_repo import UserRepository
+from backend.domain.turniked.models import AttendanceEvent, DailyAttendance, MonthlyAttendanceSummary, Device
 
 WORK_START = time(9, 0, 0)
 WORK_END = time(18, 0, 0)
@@ -223,37 +223,40 @@ class DailyAttendanceRepository(BaseRepository[DailyAttendance]):
         super().__init__(DailyAttendance, db)
 
     async def get_by_person_and_date(self, person_id: UUID, day: date) -> Optional[DailyAttendance]:
-        stmt = select(DailyAttendance).where(
-            DailyAttendance.user_id == person_id,
-            DailyAttendance.event_date == day,
-            DailyAttendance.is_deleted == False
-        )
-        return await self.db.one_or_none(stmt)
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(DailyAttendance)
+                .where(
+                    DailyAttendance.user_id == person_id,
+                    DailyAttendance.event_date == day,
+                    DailyAttendance.is_deleted == False
+                )
+            )
+            return (await session.execute(stmt)).scalar_one_or_none()
 
     async def create(self, data: DailyAttendance) -> DailyAttendance:
         # Har kunlik hisobotni yaratish
         return await self.db.add(data)
 
-    async def get_by_person_and_date(self, person_id: UUID, day: date) -> Optional[DailyAttendance]:
-        # Kunlik hisobot olish (agar mavjud bo‘lsa)
-        filters = {
-            "person_id": person_id,
-            "date": day,
-            "is_deleted": False
-        }
-        return await self.db.one_or_none(select(DailyAttendance).where(and_(*[
-            getattr(DailyAttendance, k) == v for k, v in filters.items()
-        ])))
+    # async def get_by_person_and_date(self, person_id: UUID, day: date) -> Optional[DailyAttendance]:
+    #     # Kunlik hisobot olish (agar mavjud bo‘lsa)
+    #     filters = {
+    #         "person_id": person_id,
+    #         "date": day,
+    #         "is_deleted": False
+    #     }
+    #     return await self.db.one_or_none(select(DailyAttendance).where(and_(*[
+    #         getattr(DailyAttendance, k) == v for k, v in filters.items()
+    #     ])))
 
     async def upsert_daily(
         self,
-        person_id: UUID,
+        user_id: UUID,
         org_unit_id: UUID,
         date_: date,
         updates: Dict[str, any]
     ) -> DailyAttendance:
-        # Kunlik ma'lumotni yangilash yoki yaratish
-        existing = await self.get_by_person_and_date(person_id, date_)
+        existing = await self.get_by_person_and_date(user_id, date_)
         if existing:
             for k, v in updates.items():
                 if hasattr(existing, k):
@@ -261,12 +264,25 @@ class DailyAttendanceRepository(BaseRepository[DailyAttendance]):
             return await self.update(existing)
         else:
             new_instance = DailyAttendance(
-                person_id=person_id,
+                user_id=user_id,
                 org_unit_id=org_unit_id,
-                date=date_,
+                event_date=date_,
                 **updates
             )
             return await self.create(new_instance)
+
+    async def list_by_unit_and_date(self, unit_id: UUID, day: date) -> List[DailyAttendance]:
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(DailyAttendance)
+                .where(
+                    DailyAttendance.org_unit_id == unit_id,
+                    DailyAttendance.event_date == day,
+                    DailyAttendance.is_deleted == False
+                )
+                .order_by(DailyAttendance.first_entry.asc().nulls_last())
+            )
+            return list((await session.execute(stmt)).scalars().all())
 
 
 class MonthlyAttendanceRepository(BaseRepository[MonthlyAttendanceSummary]):
@@ -277,25 +293,28 @@ class MonthlyAttendanceRepository(BaseRepository[MonthlyAttendanceSummary]):
         # Oylik hisobotni yaratish
         return await self.db.add(data)
 
-    async def get_by_person_and_month(self, person_id: UUID, year: int, month: int) -> Optional[MonthlyAttendanceSummary]:
-        # Oylik statistikani olish
-        return await self.db.one_or_none(select(MonthlyAttendanceSummary).where(
-            MonthlyAttendanceSummary.person_id == person_id,
-            MonthlyAttendanceSummary.year == year,
-            MonthlyAttendanceSummary.month == month,
-            MonthlyAttendanceSummary.is_deleted == False
-        ))
+    async def get_by_user_and_month(self, user_id: UUID, year: int, month: int) -> Optional[MonthlyAttendanceSummary]:
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(MonthlyAttendanceSummary)
+                .where(
+                    MonthlyAttendanceSummary.user_id == user_id,
+                    MonthlyAttendanceSummary.year == year,
+                    MonthlyAttendanceSummary.month == month,
+                    MonthlyAttendanceSummary.is_deleted == False
+                )
+            )
+            return (await session.execute(stmt)).scalar_one_or_none()
 
     async def upsert_monthly(
         self,
-        person_id: UUID,
+        user_id: UUID,
         org_unit_id: UUID,
         year: int,
         month: int,
         updates: Dict[str, any]
     ) -> MonthlyAttendanceSummary:
-        # Oylik statistikani yangilash yoki yaratish
-        existing = await self.get_by_person_and_month(person_id, year, month)
+        existing = await self.get_by_user_and_month(user_id, year, month)
         if existing:
             for k, v in updates.items():
                 if hasattr(existing, k):
@@ -303,13 +322,27 @@ class MonthlyAttendanceRepository(BaseRepository[MonthlyAttendanceSummary]):
             return await self.update(existing)
         else:
             new_instance = MonthlyAttendanceSummary(
-                person_id=person_id,
+                user_id=user_id,
                 org_unit_id=org_unit_id,
                 year=year,
                 month=month,
                 **updates
             )
             return await self.create(new_instance)
+
+    async def list_by_unit_and_month(self, unit_id: UUID, year: int, month: int) -> List[MonthlyAttendanceSummary]:
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(MonthlyAttendanceSummary)
+                .where(
+                    MonthlyAttendanceSummary.org_unit_id == unit_id,
+                    MonthlyAttendanceSummary.year == year,
+                    MonthlyAttendanceSummary.month == month,
+                    MonthlyAttendanceSummary.is_deleted == False
+                )
+                .order_by(MonthlyAttendanceSummary.total_worked_minutes.desc())
+            )
+            return list((await session.execute(stmt)).scalars().all())
 
 
 class DeviceRepository(BaseRepository[Device]):

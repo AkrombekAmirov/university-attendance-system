@@ -240,7 +240,7 @@ export default function UserManagementPage() {
     }, []);
 
     const handleUserCreated = async () => {
-        // const { data } = await api.get("/users/list");
+        // const { data } = await api.get("/staff/list");
         // setUsers(data);
     };
 

@@ -6,7 +6,6 @@ from .base import DatabaseService
 from .utils import build_filters, build_order_by
 from sqlalchemy import func
 
-
 T = TypeVar("T", bound=SQLModel)
 
 
@@ -23,9 +22,6 @@ class BaseRepository(Generic[T]):
         self.model = model
         self.db = db or DatabaseService()
 
-    async def get_session(self) -> AsyncSession:
-        return self.db.get_session()
-
     async def get_by_id(self, id_value: Any) -> Optional[T]:
         async with self.db.session_scope() as session:
             stmt = select(self.model).where(self.model.id == id_value)
@@ -33,13 +29,13 @@ class BaseRepository(Generic[T]):
             return res.scalar_one_or_none()
 
     async def list(
-        self,
-        filters: Optional[Dict[str, Any]] = None,
-        *,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
-        order: Optional[Sequence[str]] = None,
-        or_filters: Optional[List[Dict[str, Any]]] = None,
+            self,
+            filters: Optional[Dict[str, Any]] = None,
+            *,
+            limit: Optional[int] = None,
+            offset: Optional[int] = None,
+            order: Optional[Sequence[str]] = None,
+            or_filters: Optional[List[Dict[str, Any]]] = None,
     ) -> List[T]:
         """Kengaytirilgan filter + OR kombinatsiyalarini qo‘llab-quvvatlaydi."""
         async with self.db.session_scope() as session:

@@ -38,6 +38,21 @@ class UserRepository(BaseRepository[User]):
             user.mark_login_failure(max_attempts, lock_minutes)
             await s.merge(user)
 
+    async def get_many_by_ids(self, ids: List[UUID]) -> List[User]:
+        if not ids:
+            return []
+        async with self.db.session_scope() as s:
+            stmt = (
+                select(User)
+                .where(
+                    User.id.in_(ids),
+                    User.is_deleted == False,
+                    User.is_active == True
+                )
+            )
+            res = await s.execute(stmt)
+            return list(res.scalars().all())
+
 
 class RefreshSessionRepository(BaseRepository[RefreshSession]):
     def __init__(self, db: DatabaseService | None = None):

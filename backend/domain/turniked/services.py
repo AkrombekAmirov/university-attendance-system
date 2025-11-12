@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from uuid import UUID
 from datetime import datetime, date
 
@@ -16,6 +16,8 @@ from backend.domain.turniked.turniked_repo import (
     DailyAttendanceRepository,
     MonthlyAttendanceRepository
 )
+from backend.domain.organization.services import AssignmentRepository
+from backend.domain.user.services import UserRepository
 
 
 class TurnikedService:
@@ -30,6 +32,8 @@ class TurnikedService:
         self.event_repo = AttendanceEventRepository(self.db)
         self.daily_repo = DailyAttendanceRepository(self.db)
         self.monthly_repo = MonthlyAttendanceRepository(self.db)
+        self.assign_repo = AssignmentRepository(self.db)
+        self.user_repo = UserRepository(self.db)
 
     # ===================== DEVICE =====================
     async def process_realtime_event(self, event: dict, device_id: UUID):
@@ -100,7 +104,7 @@ class TurnikedService:
     ) -> DailyAttendance:
         """Kunlik ishtirokni yangilash yoki yaratish."""
         return await self.daily_repo.upsert_daily(
-            person_id=person_id,
+            user_id=person_id,
             org_unit_id=org_unit_id,
             date_=date_,
             updates=updates,
@@ -121,7 +125,7 @@ class TurnikedService:
     ) -> MonthlyAttendanceSummary:
         """Oylik ishtirokni yangilash yoki yaratish."""
         return await self.monthly_repo.upsert_monthly(
-            person_id=person_id,
+            user_id=person_id,
             org_unit_id=org_unit_id,
             year=year,
             month=month,
@@ -130,7 +134,7 @@ class TurnikedService:
 
     async def get_monthly_by_person(self, person_id: UUID, year: int, month: int) -> Optional[MonthlyAttendanceSummary]:
         """Oylik ishtirokni olish."""
-        return await self.monthly_repo.get_by_person_and_month(person_id, year, month)
+        return await self.monthly_repo.get_by_user_and_month(person_id, year, month)
 
     # TurnikedService ichida
 
@@ -157,3 +161,91 @@ class TurnikedService:
         )
 
         session.add(model)
+
+    async def get_unit_daily_report(self, unit_id: UUID, day: date) -> List[Dict[str, Any]]:
+        """
+        1) Shu bo‘limdagi (unit_id) AKTIV assignmentlar → user_id ro‘yxati (rahbar + xodimlar)
+        2) DailyAttendance (unit_id, day) bo‘yicha yozuvlar
+        3) FULL OUTER emas, lekin user-list asos bo‘ladi; daily yo‘q bo‘lsa ham user chiqadi (first_entry=None)
+        """
+        # 1) Bo‘limdagi aktiv userlar (rahbar + xodimlar)
+        user_ids = await self.assign_repo.get_active_user_ids_by_unit(unit_id)
+        if not user_ids:
+            return []
+
+        # 2) Kunlik attendance (faqat borlari)
+        daily_rows = await self.daily_repo.list_by_unit_and_date(unit_id, day)
+        daily_by_user: Dict[UUID, DailyAttendance] = {r.user_id: r for r in daily_rows}
+
+        # 3) User-name/position batching
+        users = await self.user_repo.get_many_by_ids(user_ids)  # sizda bor
+        user_map = {u.id: u.full_name or u.username for u in users}
+
+        # position title batching (bugungidek)
+        titles = await self.assign_repo.get_active_titles_for_users(user_ids)
+        title_map = {uid: ttl for uid, ttl in titles}
+
+        # 4) Compose output
+        out: List[Dict[str, Any]] = []
+        for uid in user_ids:
+            d = daily_by_user.get(uid)
+            out.append({
+                "user_id": uid,
+                "full_name": user_map.get(uid, "N/A"),
+                "position": title_map.get(uid),
+                "event_date": day.isoformat(),
+                "first_entry": d.first_entry.isoformat() if d and d.first_entry else None,
+                "last_exit": d.last_exit.isoformat() if d and d.last_exit else None,
+                "worked_minutes": d.worked_minutes if d else 0,
+                "was_late": bool(d.was_late) if d else False,
+                "left_early": bool(d.left_early) if d else False,
+                "entries_count": d.entries_count if d else 0,
+            })
+
+        # Rahbarni pastda qolmasligi uchun ixtiyoriy sort: boshliq → keyin xodimlar (agar titles mavjud bo‘lsa)
+        out.sort(key=lambda x: (x["position"] or "").lower() != "bo‘lim boshlig‘i")
+        return out
+
+    # ==========================
+    #  B) OYLIK — bo‘lim bo‘yicha
+    # ==========================
+    async def get_unit_monthly_report(self, unit_id: UUID, year: int, month: int) -> List[Dict[str, Any]]:
+        """
+        Oylik jamlama: bo‘lim boshlig‘i + xodimlar.
+        Daily mavjud bo‘lmasa ham (kelmagan bo‘lsa) user ro‘yxatida turadi; monthly yozuv bo‘lmasa — 0 bilan.
+        """
+        user_ids = await self.assign_repo.get_active_user_ids_by_unit(unit_id)
+        if not user_ids:
+            return []
+
+        monthly_rows = await self.monthly_repo.list_by_unit_and_month(unit_id, year, month)
+        monthly_by_user: Dict[UUID, MonthlyAttendanceSummary] = {r.user_id: r for r in monthly_rows}
+
+        users = await self.user_repo.get_many_by_ids(user_ids)
+        user_map = {u.id: u.full_name or u.username for u in users}
+
+        titles = await self.assign_repo.get_active_titles_for_users(user_ids)
+        title_map = {uid: ttl for uid, ttl in titles}
+
+        out: List[Dict[str, Any]] = []
+        for uid in user_ids:
+            m = monthly_by_user.get(uid)
+            out.append({
+                "user_id": uid,
+                "full_name": user_map.get(uid, "N/A"),
+                "position": title_map.get(uid),
+                "year": year,
+                "month": month,
+                "present_days": m.present_days if m else 0,
+                "late_days": m.late_days if m else 0,
+                "early_leave_days": m.early_leave_days if m else 0,
+                "absent_days": m.absent_days if m else 0,
+                "total_worked_minutes": m.total_worked_minutes if m else 0,
+                "total_expected_minutes": m.total_expected_minutes if m else 0,
+                "attendance_rate": m.attendance_rate if m else 0.0,
+                "punctuality_score": m.punctuality_score if m else 0.0,
+            })
+
+        # Ixtiyoriy sort: boshliq oldinda
+        out.sort(key=lambda x: (x["position"] or "").lower() != "bo‘lim boshlig‘i")
+        return out

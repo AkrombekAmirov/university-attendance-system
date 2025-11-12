@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.requests import Request
 from backend.core.config import get_settings
 from backend.interfaces.api import org_router
+from backend.interfaces.turniked import turniked_router
 
 
 logger = logger
@@ -65,6 +66,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 app.include_router(user_router)
 app.include_router(org_router)
+app.include_router(turniked_router)
 
 
 @app.get("/health", tags=["System"])

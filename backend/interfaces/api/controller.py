@@ -108,26 +108,16 @@ class OrganizationController:
                 quota=payload.quota,
             )
 
-            if payload.parent_position_id:
-                exists = await self.svc.check_reporting_link_exists(
-                    parent_position_id=payload.parent_position_id,
-                    child_position_id=position.id
-                )
+            parent_id = payload.parent_position_id
 
+            if parent_id:
+                exists = await self.svc.check_reporting_link_exists(parent_id, position.id)
                 if not exists:
-                    await self.svc.create_reporting_link(
-                        parent_position_id=payload.parent_position_id,
-                        child_position_id=position.id,
-                        relation_type="LINE"
-                    )
+                    await self.svc.create_reporting_link(parent_id, position.id, relation_type="LINE")
 
-                await self.svc.insert_closure(
-                    child_id=position.id,
-                    parent_id=payload.parent_position_id,
-                    created_by=actor.id
-                )
+            # ✅ Always update closure after position created
+            await self.svc.insert_closure(position.id, parent_id)
 
-            logger.info("✅ Position created successfully: {} ({})", position.title, position.id)
             return PositionOut.model_validate(position)
 
         except HTTPException:
