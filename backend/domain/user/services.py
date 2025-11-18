@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import Optional, Tuple, List, Dict
+from fastapi import HTTPException, status
 from dataclasses import dataclass
+from datetime import datetime
 from sqlmodel import select
 from datetime import date
 from uuid import UUID
@@ -14,12 +16,15 @@ from backend.core.security import (
 from backend.core.config import get_settings
 from backend.core.LoggingService import logger
 from backend.domain.user.user_repo import UserRepository, RefreshSessionRepository, MFARepository
-from backend.domain.organization.org_repo import PositionRepository, OrgUnitRepository, PositionClosureRepository, AssignmentRepository
+from backend.domain.organization.org_repo import OrganizationRepository, PositionRepository, OrgUnitRepository, \
+    PositionClosureRepository, AssignmentRepository
 from backend.domain.organization.models import Position
 from backend.domain.user.models import User
 from backend.domain.organization.models import Assignment
+from .schemas import UserUpdateIn
 
 settings = get_settings()
+
 
 @dataclass
 class UserStaffDTO:
@@ -27,29 +32,93 @@ class UserStaffDTO:
     full_name: str
     position: str | None
 
+
 class UserService:
     def __init__(self, db: DatabaseService | None = None):
         self.db = db or DatabaseService()
-        self.users = UserRepository(self.db)
-        self.sessions = RefreshSessionRepository(self.db)
         self.mfa = MFARepository(self.db)
-        self.pos_repo = PositionRepository(self.db)
+        self.users = UserRepository(self.db)
         self.unit_repo = OrgUnitRepository(self.db)
-        self.closure_repo = PositionClosureRepository(self.db)
+        self.pos_repo = PositionRepository(self.db)
+        self.org_repo = OrganizationRepository(self.db)
         self.assign_repo = AssignmentRepository(self.db)
+        self.sessions = RefreshSessionRepository(self.db)
+        self.closure_repo = PositionClosureRepository(self.db)
+
+    async def list_full(self) -> List[dict]:
+        """Har bir user bo‘yicha to‘liq ma’lumotni chiqaradi."""
+        users = await self.users.list({"is_deleted": False})
+
+        result = []
+
+        for u in users:
+            # 1) Active assignment
+            assignments = await self.assign_repo.get_by_user(u.id)
+            active = next((a for a in assignments if a.status == "ACTIVE"), None)
+
+            position_id = None
+            position_title = None
+            org_unit_id = None
+            org_unit_name = None
+            org_id = None
+            org_name = None
+
+            if active:
+                position_id = active.position_id
+                pos = await self.pos_repo.get_by_id(position_id)
+                if pos:
+                    position_title = pos.title
+                    org_unit_id = pos.org_unit_id
+
+                    unit = await self.unit_repo.get_by_id(org_unit_id)
+                    if unit:
+                        org_unit_name = unit.name
+                        org_id = unit.organization_id
+
+                        org = await self.org_repo.get_by_id(org_id)
+                        if org:
+                            org_name = org.name
+
+            result.append({
+                "id": u.id,
+                "username": u.username,
+                "full_name": u.full_name,
+                "passport": u.passport,
+                "phone_number": u.phone_number,
+                "email": u.email,
+                "turniked_id": u.turniked_id,
+                "is_active": u.is_active,
+                "is_superadmin": u.is_superadmin,
+                "last_login_at": u.last_login_at,
+                "last_login_ip": u.last_login_ip,
+
+                # assignment
+                "position_id": position_id,
+                "position_title": position_title,
+
+                # org unit
+                "org_unit_id": org_unit_id,
+                "org_unit_name": org_unit_name,
+
+                # organization
+                "organization_id": org_id,
+                "organization_name": org_name,
+            })
+
+        return result
 
     # -------- Admin-side creation --------
     async def create_user(
-        self,
-        username: str,
-        email: Optional[str],
-        password: str,
-        *,
-        full_name: Optional[str] = None,
-        passport: Optional[str] = None,
-        turniket_id: Optional[str] = None,
-        is_active: bool = True,
-        is_superadmin: bool = False,
+            self,
+            username: str,
+            email: Optional[str],
+            password: str,
+            *,
+            full_name: Optional[str] = None,
+            passport: Optional[str] = None,
+            turniket_id: Optional[str] = None,
+            is_active: bool = True,
+            is_superadmin: bool = False,
     ) -> User:
         """
         Superadmin tomonidan yangi foydalanuvchi yaratish.
@@ -335,6 +404,159 @@ class UserService:
             "position": (await self.pos_repo.get_by_id(pos_id)).title,
             "units": [tree]
         }
+
+    async def update_user_basic(self, user_id: UUID, payload: UserUpdateIn) -> dict:
+        """
+        Senior-level user basic update:
+        - supports partial update
+        - respects unique constraints
+        - does NOT modify assignment/position
+        - fully transactional
+        - returns full snapshot
+        """
+        # 1) Userni olish
+        user = await self.users.get_by_id(user_id)
+        if not user or user.is_deleted:
+            raise HTTPException(status_code=404, detail="Foydalanuvchi topilmadi")
+
+        # 2) Hech qanday maydon kelmagan bo‘lsa
+        if not any([
+            payload.username,
+            payload.passport is not None,
+            payload.email is not None,
+            payload.full_name is not None,
+            payload.turniked_id is not None,
+        ]):
+            raise HTTPException(
+                status_code=400,
+                detail="Yangilash uchun hech qanday maydon yuborilmadi",
+            )
+
+        # === TRANSACTION START ===
+        async with self.db.session_scope() as session:
+
+            # -----------------------------
+            # 3) Username uniqueness
+            # -----------------------------
+            if payload.username and payload.username != user.username:
+                existing = await self.users.get_by_username(payload.username)
+                if existing and existing.id != user.id:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Bu username allaqachon boshqa foydalanuvchi tomonidan ishlatilmoqda",
+                    )
+                user.username = payload.username
+
+            # -----------------------------
+            # 4) Email uniqueness
+            # -----------------------------
+            if payload.email is not None:
+                if payload.email == "":
+                    user.email = None
+                else:
+                    existing_email = await self.users.get_by_email(payload.email)
+                    if existing_email and existing_email.id != user.id:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Bu email allaqachon boshqa foydalanuvchiga biriktirilgan",
+                        )
+                    user.email = payload.email
+
+            # -----------------------------
+            # 5) Turniket ID uniqueness
+            # -----------------------------
+            if payload.turniked_id is not None:
+                if payload.turniked_id == "":
+                    user.turniked_id = None
+                else:
+                    conflict = await self.users.list({
+                        "turniked_id": payload.turniked_id,
+                        "is_deleted": False
+                    })
+                    for c in conflict:
+                        if c.id != user.id:
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Bu turniket ID boshqa foydalanuvchiga biriktirilgan",
+                            )
+                    user.turniked_id = payload.turniked_id
+
+            # -----------------------------
+            # 6) Oddiy fieldlar
+            # -----------------------------
+            if payload.full_name is not None:
+                user.full_name = payload.full_name or None
+
+            if payload.passport is not None:
+                user.passport = payload.passport or None
+
+            # -----------------------------
+            # 7) Audit
+            # -----------------------------
+            user.updated_at = datetime.utcnow()
+            user.version = (user.version or 1) + 1
+
+            session.add(user)
+
+        # === TRANSACTION END ===
+
+        # 8) Full snapshot qaytaramiz
+        return await self.get_full_by_id(user_id)
+
+    async def get_full_by_id(self, user_id: UUID) -> dict:
+        user = await self.users.get_by_id(user_id)
+        if not user or user.is_deleted:
+            raise HTTPException(status_code=404, detail="Foydalanuvchi topilmadi")
+
+        assignments = await self.assign_repo.get_by_user(user.id)
+        active = next((a for a in assignments if a.status == "ACTIVE"), None)
+
+        position_id = None
+        position_title = None
+        org_unit_id = None
+        org_unit_name = None
+        org_id = None
+        org_name = None
+
+        if active:
+            position_id = active.position_id
+            pos = await self.pos_repo.get_by_id(position_id)
+            if pos:
+                position_title = pos.title
+                org_unit_id = pos.org_unit_id
+
+                unit = await self.unit_repo.get_by_id(org_unit_id)
+                if unit:
+                    org_unit_name = unit.name
+                    org_id = unit.organization_id
+
+                    org = await self.org_repo.get_by_id(org_id)
+                    if org:
+                        org_name = org.name
+
+        return {
+            "id": user.id,
+            "username": user.username,
+            "full_name": user.full_name,
+            "passport": user.passport,
+            "phone_number": user.phone_number,
+            "email": user.email,
+            "turniked_id": user.turniked_id,
+            "is_active": user.is_active,
+            "is_superadmin": user.is_superadmin,
+            "last_login_at": user.last_login_at,
+            "last_login_ip": user.last_login_ip,
+
+            "position_id": position_id,
+            "position_title": position_title,
+
+            "org_unit_id": org_unit_id,
+            "org_unit_name": org_unit_name,
+
+            "organization_id": org_id,
+            "organization_name": org_name,
+        }
+
 
 def settings_now():
     from datetime import datetime, timezone

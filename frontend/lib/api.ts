@@ -98,3 +98,13 @@ export async function fetchUnitDaily(unit_id: string, day: string) {
     return res.data;
 }
 
+export async function fetchUnitMonthlyDetailed(
+    unit_id: string,
+    year: number,
+    month: number
+) {
+    const res = await api.get("/turniked/attendance/unit/monthly/detailed", {
+        params: { unit_id, year, month },
+    });
+    return res.data;
+}

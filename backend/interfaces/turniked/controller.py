@@ -127,3 +127,6 @@ class TurniketController:
                                       year: int = Query(..., ge=2000, le=2100),
                                       month: int = Query(..., ge=1, le=12)):
         return await self.turniked_svc.get_unit_monthly_report(unit_id, year, month)
+
+    async def unit_monthly_attendance_detailed(self, current: User, unit_id: UUID = Query(...), year: int = Query(...), month: int = Query(...)):
+        return await self.turniked_svc.get_unit_monthly_detailed_report(unit_id=unit_id, year=year, month=month)

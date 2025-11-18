@@ -13,7 +13,7 @@ from backend.core.security import validate_refresh_token
 from backend.domain.user.models import User
 from backend.domain.user.services import UserService
 from backend.domain.organization.services import OrganizationService
-from .schemas import LoginIn, RegisterIn, TokenResponse, MeOut, UserCreateIn, UserOut
+from .schemas import LoginIn, RegisterIn, TokenResponse, MeOut, UserCreateIn, UserOut, UserUpdateIn
 from backend.interfaces.api.schemas import PositionOut
 
 
@@ -169,3 +169,19 @@ class UserAuthController:
     async def get_user_position_auth(self, position_id: UUID):
         """Foydalanuvchining pozitsiyasi haqida ma’lumot olish."""
         return await self.svc.get_user_position(position_id=position_id)
+
+    async def list_full_for_users(self, current: User):
+        if not current.is_superadmin:
+            raise HTTPException(status_code=403, detail="Ruxsat yo'q")
+        return await self.svc.list_full()
+
+    async def update_user_basic(
+            self,
+            user_id: UUID,
+            payload: UserUpdateIn,
+            current: User
+    ):
+        if not current.is_superadmin:
+            raise HTTPException(status_code=403, detail="Ruxsat yo'q")
+
+        return await self.svc.update_user_basic(user_id=user_id, payload=payload)

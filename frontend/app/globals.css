@@ -2,6 +2,34 @@
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
+/* ============================
+   CALM VISION PRO THEME
+============================= */
+:root {
+    --vp-bg: #f6f8fc;
+    --vp-bg-glass: rgba(255, 255, 255, 0.55);
+    --vp-card-glass: rgba(255, 255, 255, 0.65);
+    --vp-border: rgba(200, 200, 200, 0.40);
+    --vp-shadow: 0 12px 32px rgba(0,0,0,0.06);
+
+    --vp-primary: #4f6fff;
+    --vp-primary-soft: #e9edff;
+    --vp-green: #3cb179;
+    --vp-red: #e85b6b;
+
+    --vp-text: #1f2937;
+}
+
+/* Dark/Calm Night Theme */
+[data-theme="calm-night"] {
+    --vp-bg: #0f1115;
+    --vp-bg-glass: rgba(30, 30, 35, 0.55);
+    --vp-card-glass: rgba(40, 40, 50, 0.65);
+    --vp-border: rgba(255,255,255,0.1);
+    --vp-shadow: 0 12px 32px rgba(0,0,0,0.45);
+    --vp-text: #eaecef;
+}
+
 
 @theme inline {
   --color-background: var(--background);

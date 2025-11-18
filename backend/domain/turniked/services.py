@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 from datetime import datetime, date
+from calendar import monthrange, day_name
 
 from backend.domain.turniked.models import (
     Device,
@@ -164,46 +165,76 @@ class TurnikedService:
 
     async def get_unit_daily_report(self, unit_id: UUID, day: date) -> List[Dict[str, Any]]:
         """
-        1) Shu bo‘limdagi (unit_id) AKTIV assignmentlar → user_id ro‘yxati (rahbar + xodimlar)
-        2) DailyAttendance (unit_id, day) bo‘yicha yozuvlar
-        3) FULL OUTER emas, lekin user-list asos bo‘ladi; daily yo‘q bo‘lsa ham user chiqadi (first_entry=None)
+        Kunlik davomat + kirgan turniket ma'lumotlari
         """
-        # 1) Bo‘limdagi aktiv userlar (rahbar + xodimlar)
+
+        # 1) Bo‘limdagi aktiv xodimlar
         user_ids = await self.assign_repo.get_active_user_ids_by_unit(unit_id)
         if not user_ids:
             return []
 
-        # 2) Kunlik attendance (faqat borlari)
+        # 2) Kunlik attendance yozuvlari
         daily_rows = await self.daily_repo.list_by_unit_and_date(unit_id, day)
         daily_by_user: Dict[UUID, DailyAttendance] = {r.user_id: r for r in daily_rows}
 
-        # 3) User-name/position batching
-        users = await self.user_repo.get_many_by_ids(user_ids)  # sizda bor
+        # 3) Userlar
+        users = await self.user_repo.get_many_by_ids(user_ids)
         user_map = {u.id: u.full_name or u.username for u in users}
 
-        # position title batching (bugungidek)
+        # 4) Lavozimlar
         titles = await self.assign_repo.get_active_titles_for_users(user_ids)
         title_map = {uid: ttl for uid, ttl in titles}
 
-        # 4) Compose output
         out: List[Dict[str, Any]] = []
+
+        # 5) 🔥 Device ma'lumotlarini olish uchun CACHE
+        device_cache: Dict[UUID, str] = {}
+
+        async def get_device_name(dev_id: UUID | None) -> Optional[str]:
+            if not dev_id:
+                return None
+
+            if dev_id in device_cache:
+                return device_cache[dev_id]
+
+            dev = await self.device_repo.get_by_id(dev_id)
+            if not dev:
+                device_cache[dev_id] = None
+                return None
+
+            # Sizga qaytariladigan nom → device.name
+            device_cache[dev_id] = dev.name
+            return dev.name
+
+        # 6) 🔥 Har bir user bo‘yicha natija
         for uid in user_ids:
             d = daily_by_user.get(uid)
+
+            first_device_name = await get_device_name(d.device_id if d else None)
+
             out.append({
                 "user_id": uid,
                 "full_name": user_map.get(uid, "N/A"),
                 "position": title_map.get(uid),
                 "event_date": day.isoformat(),
+
+                # === Vaqtlar ===
                 "first_entry": d.first_entry.isoformat() if d and d.first_entry else None,
                 "last_exit": d.last_exit.isoformat() if d and d.last_exit else None,
+
+                # === TURNIKET NOMLARI (Yangi!) ===
+                "first_device": first_device_name,
+
+                # === Hisob-kitoblar ===
                 "worked_minutes": d.worked_minutes if d else 0,
                 "was_late": bool(d.was_late) if d else False,
                 "left_early": bool(d.left_early) if d else False,
                 "entries_count": d.entries_count if d else 0,
             })
 
-        # Rahbarni pastda qolmasligi uchun ixtiyoriy sort: boshliq → keyin xodimlar (agar titles mavjud bo‘lsa)
+        # 7) Rahbarni yuqoriga chiqarish
         out.sort(key=lambda x: (x["position"] or "").lower() != "bo‘lim boshlig‘i")
+
         return out
 
     # ==========================
@@ -247,5 +278,121 @@ class TurnikedService:
             })
 
         # Ixtiyoriy sort: boshliq oldinda
+        out.sort(key=lambda x: (x["position"] or "").lower() != "bo‘lim boshlig‘i")
+        return out
+
+    async def get_unit_monthly_detailed_report(
+            self,
+            unit_id: UUID,
+            year: int,
+            month: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Oylik (kunma-kun) davomat hisobot:
+        - Yakshanba kunlari SKIP qilinadi
+        - Har bir xodim uchun: kunlar ro‘yxati + umumiy jamlar
+        """
+
+        # 1) Bo‘limdagi aktiv xodimlar (oy yakunida ham shular bo‘yicha hisobot)
+        user_ids = await self.assign_repo.get_active_user_ids_by_unit(unit_id)
+        if not user_ids:
+            return []
+
+        # 2) Shu bo‘lim + oy bo‘yicha mavjud DailyAttendance yozuvlarini oldindan olib qo‘yamiz
+        monthly_daily_rows = await self.daily_repo.list_by_unit_and_month(unit_id, year, month)
+
+        # (user_id, event_date) bo‘yicha index
+        daily_index: Dict[tuple[UUID, date], DailyAttendance] = {
+            (r.user_id, r.event_date): r for r in monthly_daily_rows
+        }
+
+        # 3) Userlar
+        users = await self.user_repo.get_many_by_ids(user_ids)
+        user_map = {u.id: (u.full_name or u.username) for u in users}
+
+        # 4) Lavozimlar
+        titles = await self.assign_repo.get_active_titles_for_users(user_ids)
+        title_map = {uid: ttl for uid, ttl in titles}
+
+        # 5) Shu oy uchun ish kunlari (yakshanbani SKIP)
+        first_day = date(year, month, 1)
+        last_day_num = monthrange(year, month)[1]
+
+        working_days: List[date] = []
+        for d in range(1, last_day_num + 1):
+            current = date(year, month, d)
+            # Python weekday(): Monday=0, Sunday=6
+            if current.weekday() == 6:  # yakshanba → SKIP
+                continue
+            working_days.append(current)
+
+        out: List[Dict[str, Any]] = []
+
+        # 6) Har bir user bo‘yicha kunma-kun hisobot
+        for uid in user_ids:
+            days_rows: List[Dict[str, Any]] = []
+
+            total_present_days = 0
+            total_absent_days = 0
+            total_worked_minutes = 0
+            total_expected_minutes = 0
+
+            for day_ in working_days:
+                d_rec = daily_index.get((uid, day_))
+
+                if d_rec:
+                    is_absent = bool(d_rec.is_absent)
+                    worked = d_rec.worked_minutes
+                    was_late = bool(d_rec.was_late)
+                    left_early = bool(d_rec.left_early)
+                    first_entry = d_rec.first_entry
+                    last_exit = d_rec.last_exit
+
+                    # present/absent statistikasi
+                    if worked > 0 or first_entry:
+                        total_present_days += 1
+                    else:
+                        total_absent_days += 1
+
+                    total_worked_minutes += worked
+                    total_expected_minutes += (d_rec.expected_minutes or 0)
+                else:
+                    # Umuman DailyAttendance yo‘q → bu kun bo‘yicha absent deb qabul qilamiz
+                    is_absent = True
+                    worked = 0
+                    was_late = False
+                    left_early = False
+                    first_entry = None
+                    last_exit = None
+
+                    total_absent_days += 1
+                    total_expected_minutes += 480  # default ish kuni (8 soat)
+
+                days_rows.append({
+                    "date": day_,
+                    "weekday": day_.weekday(),
+                    "weekday_name": day_name[day_.weekday()],
+                    "first_entry": first_entry,
+                    "last_exit": last_exit,
+                    "worked_minutes": worked,
+                    "was_late": was_late,
+                    "left_early": left_early,
+                    "is_absent": is_absent,
+                })
+
+            out.append({
+                "user_id": uid,
+                "full_name": user_map.get(uid, "N/A"),
+                "position": title_map.get(uid),
+                "year": year,
+                "month": month,
+                "total_present_days": total_present_days,
+                "total_absent_days": total_absent_days,
+                "total_worked_minutes": total_worked_minutes,
+                "total_expected_minutes": total_expected_minutes,
+                "days": days_rows,
+            })
+
+        # 7) Rahbarni yuqoriga chiqarish (kunlik hisobotdagidek)
         out.sort(key=lambda x: (x["position"] or "").lower() != "bo‘lim boshlig‘i")
         return out

@@ -1,8 +1,9 @@
 from __future__ import annotations
-from typing import Optional, List
-from uuid import UUID
-from fastapi import Form
 from pydantic import BaseModel, Field, EmailStr
+from typing import Optional, List
+from datetime import datetime
+from fastapi import Form
+from uuid import UUID
 
 
 # ----------------------------
@@ -66,7 +67,8 @@ class UserCreateIn(BaseModel):
             turniket_id: str = Form(...),
     ):
         """FormData orqali kelgan qiymatlarni Pydantic modelga o‘tkazadi."""
-        return cls(username=username, password=password, full_name=full_name, passport=passport, turniket_id=turniket_id)
+        return cls(username=username, password=password, full_name=full_name, passport=passport,
+                   turniket_id=turniket_id)
 
 
 class UserOut(BaseModel):
@@ -74,6 +76,7 @@ class UserOut(BaseModel):
     username: str
     full_name: Optional[str]
     is_active: bool
+
     class Config:
         from_attributes = True
 
@@ -122,3 +125,55 @@ class OrganizationCreateIn(BaseModel):
             description: Optional[str] = Form(None),
     ) -> "OrganizationCreateIn":
         return cls(name=name, code=code, description=description)
+
+
+class UserFullOut(BaseModel):
+    id: UUID
+    username: str
+    full_name: Optional[str]
+    passport: Optional[str]
+    phone_number: Optional[str]
+    email: Optional[str]
+    turniked_id: Optional[str]
+    is_active: bool
+    is_superadmin: bool
+
+    # Last login info
+    last_login_at: Optional[datetime]
+    last_login_ip: Optional[str]
+
+    # Assignment info
+    position_id: Optional[UUID]
+    position_title: Optional[str]
+
+    # Organization chain
+    org_unit_id: Optional[UUID]
+    org_unit_name: Optional[str]
+    organization_id: Optional[UUID]
+    organization_name: Optional[str]
+
+    class Config:
+        orm_mode = True
+
+
+class UserUpdateIn(BaseModel):
+    """
+    Admin panel orqali user ma'lumotlarini qisman yangilash uchun sxema.
+    Barcha maydonlar ixtiyoriy, faqat yuborilganlari o'zgaradi.
+    """
+    username: Optional[str]
+    passport: Optional[str]
+    email: Optional[EmailStr]
+    full_name: Optional[str]
+    turniked_id: Optional[str]
+
+    @classmethod
+    def as_form(
+            cls,
+            username: Optional[str] = Form(None),
+            passport: Optional[str] = Form(None),
+            email: Optional[EmailStr] = Form(None),
+            full_name: Optional[str] = Form(None),
+            turniked_id: Optional[str] = Form(None),
+    ) -> "UserUpdateIn":
+        return cls(username=username, passport=passport, email=email, full_name=full_name, turniked_id=turniked_id)

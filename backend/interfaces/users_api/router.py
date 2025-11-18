@@ -1,14 +1,15 @@
 from __future__ import annotations
-from typing import List
-
 from fastapi import APIRouter, Depends, Request, Form
+from typing import List
+from uuid import UUID
+
 
 from backend.core.DatabaseService.base import get_db, DatabaseService
 from backend.core.security import get_current_user
 from backend.domain.user.models import User
 
 from .controller import UserAuthController
-from .schemas import LoginIn, RegisterIn, TokenResponse, MeOut, UserCreateIn, UserOut
+from .schemas import LoginIn, RegisterIn, TokenResponse, MeOut, UserCreateIn, UserOut, UserFullOut, UserUpdateIn
 
 router = APIRouter(prefix="/users", tags=["Users & Auth"])
 
@@ -88,3 +89,19 @@ async def get_users(
     current: User = Depends(get_current_user),
 ):
     return await ctrl.get_users(current)
+
+@router.get("/list_full", response_model=List[UserFullOut])
+async def list_full_for_users(
+        current: User = Depends(get_current_user),
+        c: UserAuthController = Depends(get_ctrl)
+):
+    return await c.list_full_for_users(current)
+
+@router.put("/update_basic/{user_id}", response_model=UserOut)
+async def update_user_basic_endpoint(
+    user_id: UUID,
+    payload: UserUpdateIn = Depends(UserUpdateIn.as_form),
+    ctrl: UserAuthController = Depends(get_ctrl),
+    current: User = Depends(get_current_user),
+):
+    return await ctrl.update_user_basic(user_id, payload, current)

@@ -70,3 +70,14 @@ async def unit_monthly_attendance(
         c: TurniketController = Depends(ctrl)
 ):
     return await c.unit_monthly_attendance(current, unit_id, year, month)
+
+@router.get("/attendance/unit/monthly/detailed", response_model=list[MonthlyRowOut])
+async def unit_monthly_attendance_detailed(
+        unit_id: UUID = Query(...),
+        year: int = Query(..., ge=2000, le=2100),
+        month: int = Query(..., ge=1, le=12),
+        current: User = Depends(get_current_user),
+        c: TurniketController = Depends(ctrl)
+):
+    return await c.unit_monthly_attendance_detailed(current, unit_id, year, month)
+

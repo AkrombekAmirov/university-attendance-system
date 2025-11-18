@@ -1,7 +1,7 @@
-from pydantic import BaseModel, Field
-from uuid import UUID
 from typing import Optional, List
-
+from pydantic import BaseModel
+from uuid import UUID
+from datetime import datetime, date
 
 class TurniketLoginIn(BaseModel):
     username: str
@@ -78,22 +78,35 @@ class DailyRowOut(BaseModel):
     event_date: str
     first_entry: Optional[str] = None
     last_exit: Optional[str] = None
+    first_device: Optional[str] = None
+    last_device: Optional[str] = None
     worked_minutes: int
     was_late: bool
     left_early: bool
     entries_count: int
 
+class MonthlyDayRowOut(BaseModel):
+    date: date
+    weekday: int
+    weekday_name: str
+    first_entry: Optional[datetime]
+    last_exit: Optional[datetime]
+    worked_minutes: int
+    was_late: bool
+    left_early: bool
+    is_absent: bool
+
+
 class MonthlyRowOut(BaseModel):
     user_id: UUID
     full_name: str
-    position: Optional[str] = None
+    position: Optional[str]
     year: int
     month: int
-    present_days: int
-    late_days: int
-    early_leave_days: int
-    absent_days: int
+
+    total_present_days: int
+    total_absent_days: int
     total_worked_minutes: int
     total_expected_minutes: int
-    attendance_rate: float
-    punctuality_score: float
+
+    days: List[MonthlyDayRowOut]
