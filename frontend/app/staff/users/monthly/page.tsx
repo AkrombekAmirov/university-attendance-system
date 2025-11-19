@@ -60,33 +60,44 @@ export default function MonthlyAttendancePage() {
     }, [rows, dayNumbers]);
 
     /* ===================================
-        CELL COLOR LOGIC
+        CELL COLOR LOGIC — Kechikkanlar QIZIL!
     ==================================== */
-    function getCellClasses(rec: any, jsDay: number) {
-        const base = "border border-emerald-100 text-center text-xs md:text-sm font-medium px-1.5 py-2 transition-all duration-150";
+    function getCellClasses(rec: any, jsDay: number, columnIndex: number) {
+        let base = "border border-emerald-100 text-center text-xs md:text-sm font-medium px-1.5 py-2 transition-all duration-150";
 
-        if (jsDay === 0)
-            return `${base} bg-slate-100 text-slate-500 cursor-default`;
+        // Yakshanba — och qizil fon
+        if (jsDay === 0) {
+            return `${base} bg-rose-100 text-rose-800`;
+        }
 
-        if (!rec || rec.is_absent)
-            return `${base} bg-rose-100 text-rose-800 hover:bg-rose-200 cursor-pointer`;
+        // Ustun rangini belgilash: juft-toq
+        const isEvenColumn = columnIndex % 2 === 0;
+        const columnBg = isEvenColumn ? "bg-emerald-50" : "bg-emerald-100";
 
+        // ❌ KELMAGAN — TO'Q QIZIL
+        if (!rec || rec.is_absent) {
+            return `${base} ${columnBg} bg-rose-300 text-rose-900 hover:bg-rose-400 cursor-pointer`;
+        }
+
+        // ⏰ KECHIKKAN — OCH QIZIL (soat 10:00 dan keyin)
         const late = rec.first_entry && dayjs(rec.first_entry).isAfter(dayjs(rec.date + " 10:00"));
-        if (late)
-            return `${base} bg-amber-100 text-amber-800 hover:bg-amber-200 cursor-pointer`;
+        if (late) {
+            return `${base} ${columnBg} bg-rose-200 text-rose-800 hover:bg-rose-300 cursor-pointer`;
+        }
 
-        return `${base} bg-emerald-100 text-emerald-800 hover:bg-emerald-200 cursor-pointer`;
+        // ✅ VAQTIDA KELGAN — YASHIL
+        return `${base} ${columnBg} bg-emerald-200/70 text-emerald-800 hover:bg-emerald-300 cursor-pointer`;
     }
 
     /* ===================================
-        FORMAT TIME
+        FORMAT TIME — Kechikkanlar matni ham qizil
     ==================================== */
     function fmt(rec: any) {
         if (!rec?.first_entry) return "—";
         const t = dayjs(rec.first_entry).format("HH:mm");
-        const late = dayjs(rec.first_entry).isAfter(dayjs(rec.date + " 10:00"));
+        const late = rec.first_entry && dayjs(rec.first_entry).isAfter(dayjs(rec.date + " 10:00"));
         return (
-            <span className={late ? "text-amber-800 font-bold" : "text-emerald-800 font-semibold"}>
+            <span className={late ? "text-rose-800 font-bold" : "text-emerald-800 font-semibold"}>
         {t}
       </span>
         );
@@ -168,15 +179,20 @@ export default function MonthlyAttendancePage() {
                         <th className="sticky left-0 z-10 border border-emerald-200 p-3 text-left font-bold bg-emerald-50/90 backdrop-blur">№ / F.I.Sh</th>
                         <th className="border border-emerald-200 p-3 text-left font-bold bg-emerald-50/90 backdrop-blur">Lavozim</th>
 
-                        {dayNumbers.map((d) => {
+                        {dayNumbers.map((d, idx) => {
                             const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
                             const jsDay = dayjs(dateStr).day();
+                            const isEven = idx % 2 === 0;
+                            const bgClass = jsDay === 0
+                                ? "bg-rose-200 text-rose-800"
+                                : isEven
+                                    ? "bg-emerald-200 text-emerald-900"
+                                    : "bg-emerald-300 text-emerald-900";
+
                             return (
                                 <th
                                     key={d}
-                                    className={`border border-emerald-200 px-2 py-2 font-bold cursor-pointer hover:bg-emerald-100 transition-colors ${
-                                        jsDay === 0 ? "text-rose-600 bg-rose-50" : "text-emerald-800"
-                                    }`}
+                                    className={`border border-emerald-200 px-2 py-2 font-bold cursor-pointer hover:bg-emerald-100 transition-colors ${bgClass}`}
                                     onClick={() => openDay(dateStr)}
                                 >
                                     {d}
@@ -184,27 +200,34 @@ export default function MonthlyAttendancePage() {
                             );
                         })}
 
-                        <th className="border border-emerald-200 px-3 py-2 font-bold bg-amber-50 text-amber-800">Jami</th>
-                        <th className="border border-emerald-200 px-3 py-2 font-bold bg-emerald-100 text-emerald-800">%</th>
+                        <th className="border border-emerald-200 px-3 py-2 font-bold bg-amber-100 text-amber-900">Jami</th>
+                        <th className="border border-emerald-200 px-3 py-2 font-bold bg-emerald-200 text-emerald-900">%</th>
                     </tr>
 
                     {/* HAFTA KUNLARI */}
                     <tr className="bg-slate-100 text-center text-xs font-semibold text-slate-700">
                         <th className="border border-emerald-200"></th>
                         <th className="border border-emerald-200"></th>
-                        {dayNumbers.map((d) => {
+                        {dayNumbers.map((d, idx) => {
                             const date = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
                             const js = dayjs(date).day();
+                            const isEven = idx % 2 === 0;
+                            const bgClass = js === 0
+                                ? "bg-rose-100"
+                                : isEven
+                                    ? "bg-emerald-100"
+                                    : "bg-emerald-200";
+
                             return (
-                                <th key={"wd" + d} className="border border-emerald-200 py-1.5">
-                    <span className={js === 0 ? "text-rose-600 font-bold" : ""}>
+                                <th key={"wd" + d} className={`border border-emerald-200 py-1.5 ${bgClass}`}>
+                    <span className={js === 0 ? "text-rose-700 font-bold" : "text-emerald-800"}>
                       {weekdaysUz[js]}
                     </span>
                                 </th>
                             );
                         })}
-                        <th className="border border-emerald-200"></th>
-                        <th className="border border-emerald-200"></th>
+                        <th className="border border-emerald-200 bg-amber-50"></th>
+                        <th className="border border-emerald-200 bg-emerald-100"></th>
                     </tr>
                     </thead>
 
@@ -212,16 +235,18 @@ export default function MonthlyAttendancePage() {
                     {rows.map((u, idx) => {
                         const tot = u.total_present_days + u.total_absent_days;
                         const percent = tot ? Math.round((u.total_present_days / tot) * 100) : 0;
+                        const isEvenRow = idx % 2 === 0;
+                        const rowBg = isEvenRow ? "bg-sky-50" : "bg-sky-100";
 
                         return (
-                            <tr key={u.user_id} className="hover:bg-emerald-50/50 transition-colors">
+                            <tr key={u.user_id} className={`${rowBg} hover:bg-emerald-50/50 transition-colors`}>
                                 {/* Sticky F.I.Sh */}
-                                <td className="sticky left-0 z-10 border border-emerald-200 p-2.5 bg-white/90 backdrop-blur font-medium text-emerald-900">
+                                <td className="sticky left-0 z-10 border border-emerald-200 p-2.5 bg-white font-medium text-emerald-900 shadow-sm">
                                     {idx + 1}. {u.full_name}
                                 </td>
                                 <td className="border border-emerald-200 p-2.5 text-slate-700">{u.position ?? "-"}</td>
 
-                                {dayNumbers.map((d) => {
+                                {dayNumbers.map((d, colIdx) => {
                                     const date = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
                                     const js = dayjs(date).day();
                                     const rec = u.days.find((x: any) => x.date === date);
@@ -230,7 +255,7 @@ export default function MonthlyAttendancePage() {
                                         <td
                                             key={d}
                                             onClick={() => js !== 0 && openDay(date)}
-                                            className={getCellClasses(rec, js)}
+                                            className={getCellClasses(rec, js, colIdx)}
                                         >
                                             {js === 0 ? "" : fmt(rec)}
                                         </td>
@@ -238,46 +263,47 @@ export default function MonthlyAttendancePage() {
                                 })}
 
                                 {/* Jami va % */}
-                                <td className="border border-emerald-200 text-center font-bold bg-amber-50 text-amber-800">
+                                <td className="border border-emerald-200 text-center font-bold bg-amber-100 text-amber-800">
                                     {u.total_present_days}
                                 </td>
-                                <td className="border border-emerald-200 text-center font-bold bg-emerald-100 text-emerald-800">
+                                <td className="border border-emerald-200 text-center font-bold bg-emerald-200 text-emerald-800">
                                     {percent}%
                                 </td>
                             </tr>
                         );
                     })}
 
-                    {/* KUNLIK FOIZ QATORI */}
-                    <tr className="bg-emerald-100 font-semibold text-center text-xs">
-                        <td colSpan={2} className="border border-emerald-200 p-2.5 text-emerald-800">
+                    {/* ======== KUNLIK FOIZ QATORI — AJRALIB TURADI ======== */}
+                    <tr className="bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-50 border-t-4 border-amber-300">
+                        <td colSpan={2} className="border border-emerald-200 p-2.5 font-bold text-amber-900 bg-white/80 backdrop-blur">
                             Kunlik davomat (%)
                         </td>
-                        {dailyPercent.map((p, i) => (
-                            <td
-                                key={i}
-                                className={`border border-emerald-200 py-2 ${
-                                    p < 40
-                                        ? "bg-rose-200 text-rose-800"
-                                        : p < 70
-                                            ? "bg-amber-200 text-amber-800"
-                                            : "bg-emerald-200 text-emerald-800"
-                                }`}
-                            >
-                                <div className="flex flex-col items-center">
-                                    <span>{p}%</span>
-                                    {/* Mini progress bar */}
-                                    <div className="w-full h-1 mt-1 bg-white/50 rounded-full overflow-hidden">
-                                        <div
-                                            className={`h-full ${
-                                                p < 40 ? "bg-rose-500" : p < 70 ? "bg-amber-500" : "bg-emerald-500"
-                                            }`}
-                                            style={{ width: `${p}%` }}
-                                        ></div>
+                        {dailyPercent.map((p, i) => {
+                            const bgClass = p < 40
+                                ? "bg-rose-200 text-rose-800"
+                                : p < 70
+                                    ? "bg-amber-200 text-amber-800"
+                                    : "bg-emerald-200 text-emerald-800";
+
+                            return (
+                                <td
+                                    key={i}
+                                    className={`border border-emerald-200 py-2 font-bold ${bgClass}`}
+                                >
+                                    <div className="flex flex-col items-center">
+                                        <span>{p}%</span>
+                                        <div className="w-full h-1.5 mt-1 bg-white/60 rounded-full overflow-hidden">
+                                            <div
+                                                className={`h-full ${
+                                                    p < 40 ? "bg-rose-500" : p < 70 ? "bg-amber-500" : "bg-emerald-500"
+                                                }`}
+                                                style={{ width: `${p}%` }}
+                                            ></div>
+                                        </div>
                                     </div>
-                                </div>
-                            </td>
-                        ))}
+                                </td>
+                            );
+                        })}
                         <td className="border border-emerald-200 bg-white"></td>
                         <td className="border border-emerald-200 bg-white"></td>
                     </tr>

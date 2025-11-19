@@ -31,7 +31,7 @@ async def monitor_device(device):
     def blocking_fetch():
         try:
             total = client.get_total_events()
-            start = max(0, total - 3000)
+            start = max(0, total - 500)
             for batch in client.paged_fetch_event_range(start, total):
                 for evt in batch:
                     asyncio.run_coroutine_threadsafe(
