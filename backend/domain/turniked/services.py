@@ -165,30 +165,30 @@ class TurnikedService:
 
     async def get_unit_daily_report(self, unit_id: UUID, day: date) -> List[Dict[str, Any]]:
         """
-        Kunlik davomat + kirgan turniket ma'lumotlari
+        Kunlik davomat + kirish / chiqish turniketlari
         """
 
-        # 1) Bo‘limdagi aktiv xodimlar
+        # 1️⃣ Bo‘limdagi aktiv xodimlar
         user_ids = await self.assign_repo.get_active_user_ids_by_unit(unit_id)
         if not user_ids:
             return []
 
-        # 2) Kunlik attendance yozuvlari
+        # 2️⃣ Kunlik attendance
         daily_rows = await self.daily_repo.list_by_unit_and_date(unit_id, day)
         daily_by_user: Dict[UUID, DailyAttendance] = {r.user_id: r for r in daily_rows}
 
-        # 3) Userlar
+        # 3️⃣ Userlar
         users = await self.user_repo.get_many_by_ids(user_ids)
         user_map = {u.id: u.full_name or u.username for u in users}
 
-        # 4) Lavozimlar
+        # 4️⃣ Lavozimlar
         titles = await self.assign_repo.get_active_titles_for_users(user_ids)
         title_map = {uid: ttl for uid, ttl in titles}
 
         out: List[Dict[str, Any]] = []
 
-        # 5) 🔥 Device ma'lumotlarini olish uchun CACHE
-        device_cache: Dict[UUID, str] = {}
+        # 5️⃣ 🔥 DEVICE CACHE
+        device_cache: Dict[UUID, Optional[str]] = {}
 
         async def get_device_name(dev_id: UUID | None) -> Optional[str]:
             if not dev_id:
@@ -198,19 +198,15 @@ class TurnikedService:
                 return device_cache[dev_id]
 
             dev = await self.device_repo.get_by_id(dev_id)
-            if not dev:
-                device_cache[dev_id] = None
-                return None
+            device_cache[dev_id] = dev.name if dev else None
+            return device_cache[dev_id]
 
-            # Sizga qaytariladigan nom → device.name
-            device_cache[dev_id] = dev.name
-            return dev.name
-
-        # 6) 🔥 Har bir user bo‘yicha natija
+        # 6️⃣ HAR BIR USER BO‘YICHA
         for uid in user_ids:
             d = daily_by_user.get(uid)
 
-            first_device_name = await get_device_name(d.device_id if d else None)
+            first_device_name = await get_device_name(d.first_device_id if d else None)
+            last_device_name = await get_device_name(d.last_device_id if d else None)
 
             out.append({
                 "user_id": uid,
@@ -218,21 +214,22 @@ class TurnikedService:
                 "position": title_map.get(uid),
                 "event_date": day.isoformat(),
 
-                # === Vaqtlar ===
+                # === VAQTLAR ===
                 "first_entry": d.first_entry.isoformat() if d and d.first_entry else None,
                 "last_exit": d.last_exit.isoformat() if d and d.last_exit else None,
 
-                # === TURNIKET NOMLARI (Yangi!) ===
+                # === TURNIKETLAR ===
                 "first_device": first_device_name,
+                "last_device": last_device_name,
 
-                # === Hisob-kitoblar ===
+                # === HISOBLAR ===
                 "worked_minutes": d.worked_minutes if d else 0,
                 "was_late": bool(d.was_late) if d else False,
                 "left_early": bool(d.left_early) if d else False,
                 "entries_count": d.entries_count if d else 0,
             })
 
-        # 7) Rahbarni yuqoriga chiqarish
+        # 7️⃣ Rahbarni yuqoriga chiqarish
         out.sort(key=lambda x: (x["position"] or "").lower() != "bo‘lim boshlig‘i")
 
         return out

@@ -8,8 +8,8 @@ import {
 } from "./auth";
 
 export const api = axios.create({
-    baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
-    withCredentials: true,
+    baseURL: process.env.NEXT_PUBLIC_API_URL || "https://api.davomat.uznpu.uz",
+    withCredentials: false,
 });
 
 // Inject access token into header
@@ -34,7 +34,7 @@ async function refreshToken(): Promise<string | null> {
         if (!refresh) throw new Error("No refresh token found");
 
         const res = await axios.post(
-            `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/users/auth/refresh`,
+            `${process.env.NEXT_PUBLIC_API_URL || "https://api.davomat.uznpu.uz"}/users/auth/refresh`,
             new URLSearchParams({ refresh_token: refresh }),
             { withCredentials: true }
         );

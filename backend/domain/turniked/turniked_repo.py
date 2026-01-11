@@ -27,145 +27,159 @@ class AttendanceEventRepository(BaseRepository[AttendanceEvent]):
         self.device_repo = DeviceRepository(db)
 
     async def process_event(self, event: dict, device_id: UUID):
-        # logger.debug(f"Incoming turniket event: {event}")
+        """
+        Turniketdan kelgan IN eventni qayta ishlaydi.
+        - first_entry → kun bo‘yicha ENG ERTA kelgan vaqt
+        - last_exit   → kun bo‘yicha ENG OXIRGI o‘tilgan vaqt
+        - worked_minutes → first_entry va last_exit orasidagi farq
+        """
 
-        if not event.get("employeeNoString"):
+        # ─────────────────────────────
+        # 1️⃣ Faqat shaxsga bog‘liq IN
+        # ─────────────────────────────
+        employee_no = event.get("employeeNoString")
+        if not employee_no:
             return
 
+        minor = int(event.get("minor", -1))
+        if minor not in (75, 72):  # faqat KIRISH
+            return
+
+        # ─────────────────────────────
+        # 2️⃣ Vaqtni normalizatsiya qilish
+        # ─────────────────────────────
+        raw_time = event.get("time")
+        if isinstance(raw_time, str):
+            now = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
+        else:
+            now = raw_time
+
+        if now.tzinfo:
+            now = now.replace(tzinfo=None)
+
+        event_date = now.date()
+        event_time = now.time()
+
         async with self.db.session_scope() as session:
-            user = await self.users.get_by_user_turniked_id(event["employeeNoString"])
+
+            # ─────────────────────────
+            # 3️⃣ User va Device
+            # ─────────────────────────
+            user = await self.users.get_by_user_turniked_id(employee_no)
             if not user:
-                # logger.warning(f"Unknown turniket ID: {event['employeeNoString']}")
                 return
+
             device = await self.device_repo.get_by_id(device_id)
             if not device:
-                logger.warning(f"Unknown device ID: {device_id}")
                 return
-
-            now = event["time"]
-            if isinstance(now, str):
-                now = datetime.fromisoformat(now)
-
-            if now.tzinfo:
-                now = now.replace(tzinfo=None)
-
-            d = now.date()
-            t = now.time()
-            direction = device.source_system
 
             org_unit_id = await self.org_repo.get_org_unit_by_user_id_(user.id)
 
-            # Save raw event
+            # ─────────────────────────
+            # 4️⃣ RAW EVENT (audit)
+            # ─────────────────────────
             session.add(AttendanceEvent(
                 user_id=user.id,
                 device_id=device_id,
-                direction=direction,
-                turniked_id=event["employeeNoString"],
-                event_date=d,
-                event_time=t,
-                timecontrol=f"{d}|{t}"
+                direction="IN",
+                turniked_id=employee_no,
+                event_date=event_date,
+                event_time=event_time,
+                timecontrol=f"{event_date}|{event_time}",
+                extra_data=event
             ))
 
-            # DAILY RECORD
-            daily = (await session.execute(
+            # ─────────────────────────
+            # 5️⃣ DAILY (1 user + 1 day)
+            # ─────────────────────────
+            result = await session.execute(
                 select(DailyAttendance)
                 .where(
                     DailyAttendance.user_id == user.id,
-                    DailyAttendance.event_date == d,
+                    DailyAttendance.event_date == event_date,
                     DailyAttendance.is_deleted == False
                 )
                 .with_for_update()
-            )).scalar_one_or_none()
+            )
+            daily = result.scalars().first()
 
-            # First IN of the day
-            if not daily and direction == "IN":
-                daily = DailyAttendance(
+            # ─────────────────────────
+            # 6️⃣ DAILY mavjud bo‘lsa
+            # ─────────────────────────
+            if daily:
+                # 🔹 first_entry → faqat eng ertasi
+                if daily.first_entry is None or now < daily.first_entry:
+                    daily.first_entry = now
+                    daily.first_device_id = device_id
+                    daily.alert_flag = True
+
+                # 🔹 last_exit → HAR DOIM oxirgisi
+                daily.last_exit = now
+                daily.last_device_id = device_id
+
+                # 🔹 worked_minutes hisoblash
+                if daily.first_entry and daily.last_exit and daily.last_exit >= daily.first_entry:
+                    daily.worked_minutes = int(
+                        (daily.last_exit - daily.first_entry).total_seconds() // 60
+                    )
+
+                # 🔹 kirishlar soni
+                daily.entries_count = (daily.entries_count or 0) + 1
+
+                session.add(daily)
+                return
+
+            # ─────────────────────────
+            # 7️⃣ DAILY yo‘q → yaratamiz
+            # ─────────────────────────
+            daily = DailyAttendance(
+                user_id=user.id,
+                org_unit_id=org_unit_id,
+                device_id=device_id,
+                event_date=event_date,
+
+                # 🔹 birinchi kelish
+                first_entry=now,
+                first_device_id=device_id,
+
+                # 🔹 oxirgi chiqish (hozircha shu ham)
+                last_exit=now,
+                last_device_id=device_id,
+
+                entries_count=1,
+                alert_flag=True,
+                worked_minutes=0,
+                expected_minutes=480,
+                shift_start_time=WORK_START,
+                shift_end_time=WORK_END
+            )
+            session.add(daily)
+
+            # ─────────────────────────
+            # 8️⃣ MONTHLY (faqat mavjud bo‘lmasa)
+            # ─────────────────────────
+            m_res = await session.execute(
+                select(MonthlyAttendanceSummary)
+                .where(
+                    MonthlyAttendanceSummary.user_id == user.id,
+                    MonthlyAttendanceSummary.year == event_date.year,
+                    MonthlyAttendanceSummary.month == event_date.month,
+                    MonthlyAttendanceSummary.is_deleted == False
+                )
+                .with_for_update()
+            )
+            monthly = m_res.scalars().first()
+
+            if not monthly:
+                session.add(MonthlyAttendanceSummary(
                     user_id=user.id,
                     org_unit_id=org_unit_id,
-                    device_id=device_id,
-                    event_date=d,
-                    first_entry=now,
-                    first_device_id=device_id,
-                    last_exit=None,
-                    entries_count=1,
-                    alert_flag=True,
-                    worked_minutes=0,
-                    shift_start_time=WORK_START,
-                    shift_end_time=WORK_END
-                )
-                session.add(daily)
-
-                # MONTH init
-                m = (await session.execute(
-                    select(MonthlyAttendanceSummary)
-                    .where(
-                        MonthlyAttendanceSummary.user_id == user.id,
-                        MonthlyAttendanceSummary.year == d.year,
-                        MonthlyAttendanceSummary.month == d.month,
-                        MonthlyAttendanceSummary.is_deleted == False
-                    )
-                    .with_for_update()
-                )).scalar_one_or_none()
-
-                if not m:
-                    session.add(MonthlyAttendanceSummary(
-                        user_id=user.id,
-                        org_unit_id=org_unit_id,
-                        year=d.year,
-                        month=d.month,
-                        present_days=1,
-                        total_days=1,
-                        total_expected_minutes=480,
-                        first_entry=now
-                    ))
-
-                return
-
-            if not daily:
-                return
-
-            # Invalid OUT before IN
-            if direction == "OUT" and not daily.first_entry:
-                return
-
-            daily.entries_count += 1
-
-            # OUT → calc
-            if direction == "OUT":
-                last_entry = daily.last_exit or daily.first_entry
-                if last_entry:
-                    dt = now - last_entry
-                    worked = max(0, int(dt.total_seconds() / 60))
-
-                    if LUNCH_START <= last_entry.time() <= LUNCH_END:
-                        worked = 0
-
-                    daily.worked_minutes += worked
-                    daily.last_exit = now
-
-                    m = (await session.execute(
-                        select(MonthlyAttendanceSummary)
-                        .where(
-                            MonthlyAttendanceSummary.user_id == user.id,
-                            MonthlyAttendanceSummary.year == d.year,
-                            MonthlyAttendanceSummary.month == d.month,
-                            MonthlyAttendanceSummary.is_deleted == False
-                        )
-                        .with_for_update()
-                    )).scalar_one_or_none()
-
-                    if m:
-                        m.total_worked_minutes += worked
-                        m.last_exit = now
-
-            if direction == "IN":
-                # Faqat entry count oshadi
-                pass
-
-            if direction == "OUT":
-                daily.last_exit = now
-
-            session.add(daily)
+                    year=event_date.year,
+                    month=event_date.month,
+                    present_days=1,
+                    total_days=1,
+                    total_expected_minutes=480
+                ))
 
     async def get_by_person_on_date(self, user_id: UUID, target_date: date) -> List[AttendanceEvent]:
         return await self.list({
@@ -421,11 +435,15 @@ class DeviceRepository(BaseRepository[Device]):
         })
 
     async def update_sync_status(
-        self,
-        device_id: UUID,
-        last_serial_no: int,
-        last_event_time: datetime
-    ) -> Optional[UUID]:
+            self,
+            device_id: UUID,
+            last_serial_no: int,
+            last_event_time: datetime
+    ):
+        # 🔒 Ikkinchi himoya
+        if last_event_time and last_event_time.tzinfo:
+            last_event_time = last_event_time.replace(tzinfo=None)
+
         return await self.db.update_by_field(
             Device,
             "id",

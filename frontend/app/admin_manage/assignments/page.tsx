@@ -25,6 +25,7 @@ function AssignmentModal({
                              onCreated,
                              users
                          }: any) {
+
     const { register, handleSubmit, setValue, reset, formState: { errors } } = useForm<FormData>({
         resolver: zodResolver(assignmentSchema),
         defaultValues: { status: "ACTIVE" },
@@ -180,7 +181,7 @@ function AssignmentModal({
                             <div>
                                 <Label><ShieldCheck className="inline mr-1"/> Holati</Label>
                                 <Select onValueChange={(v) => setValue("status", v)} defaultValue="ACTIVE">
-                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    {/*<SelectTrigger><SelectValue /></SelectTrigger>*/}
                                     <SelectContent>
                                         <SelectItem value="ACTIVE">ACTIVE</SelectItem>
                                         <SelectItem value="BLOCKED">BLOCKED</SelectItem>

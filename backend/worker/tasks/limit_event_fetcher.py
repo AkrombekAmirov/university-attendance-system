@@ -80,8 +80,8 @@ class EventFetcher:
         print(
             f"📅 {time_str} | 👤 {employee_id} - {name} | 🚪 {door} | 📌 Reader: {reader} | 🧭 {direction} | 🏷️ Qurilma: {device} | 🔢 Serial: {serial} number = {self.counter}")
 
-    def paged_fetch_event_range(self, start_index, end_index):
-        print(f"🚀 Fetching events from {start_index} to {end_index} in batches of {self.batch_size}")
+    def paged_fetch_event_range(self, start_index, end_index, device_name):
+        print(f"🚀 Fetching events from {device_name} {start_index} to {end_index} in batches of {self.batch_size}")
         current = start_index
 
         while current < end_index:
