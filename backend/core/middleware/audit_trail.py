@@ -24,12 +24,22 @@ class HttpAuditMiddleware(BaseHTTPMiddleware):
         if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
             return await call_next(request)
 
-        # 🔹 Request ma’lumotlari
-        try:
-            body = await request.body()
-            body_preview = body.decode("utf-8")[:512] if body else None
-        except Exception:
-            body_preview = None
+        # 🔹 Request ma’lumotlari (OWASP: never log secrets)
+        body_preview = None
+        sensitive_paths = {"/users/auth/login", "/users/auth/refresh"}
+        if request.url.path not in sensitive_paths and not request.url.path.startswith("/users/auth"):
+            try:
+                body = await request.body()
+                if body:
+                    preview = body.decode("utf-8", errors="ignore")[:512]
+                    # Basic redaction for common secret fields.
+                    lowered = preview.lower()
+                    if any(k in lowered for k in ["password", "refresh_token", "access_token", "authorization", "secret", "token"]):
+                        body_preview = "[REDACTED]"
+                    else:
+                        body_preview = preview
+            except Exception:
+                body_preview = None
 
         # 🔹 AuditServis
         audit_service = AuditService()

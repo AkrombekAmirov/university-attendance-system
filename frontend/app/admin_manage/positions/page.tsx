@@ -2,174 +2,187 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, X, Briefcase, Building2, Layers3 } from "lucide-react";
+import {
+    Plus,
+    X,
+    Briefcase,
+    Building2,
+    Layers3,
+    Sparkles,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
+import {
+    Card,
+    CardHeader,
+    CardTitle,
+    CardContent,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
     Select,
+    SelectTrigger,
     SelectContent,
     SelectItem,
-    SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 import { api } from "@/lib/api";
 import { toast } from "react-hot-toast";
 import { useAuth } from "@/hooks/useAuth";
 
+/* ============================================================================
+   CONSTANTS & SCHEMA (UNCHANGED)
+============================================================================ */
+
 const DEFAULT_ROLE_ID = "11111111-1111-1111-1111-111111111111";
 
 const positionSchema = z.object({
-    org_unit_id: z.string().uuid({ message: "Bo‘linma tanlanmagan" }),
-    title: z.string().min(2, "Lavozim nomi kamida 2 ta belgidan iborat bo‘lishi kerak"),
-    quota: z.coerce.number().min(1, "Kvota kamida 1 bo‘lishi kerak"),
+    org_unit_id: z.string().uuid(),
+    title: z.string().min(2),
+    quota: z.coerce.number().min(1),
     is_unique: z.boolean().optional(),
     parent_position_id: z.string().uuid().optional(),
 });
+
 type FormData = z.infer<typeof positionSchema>;
 
-// --- 💼 Modal for Creating Position ---
-function PositionModal({
-                           isOpen,
-                           onClose,
-                           onCreated,
-                           orgUnits,
-                           positions,
-                           onSubmit,
-                           register,
-                           setValue,
-                           errors,
-                           loading,
-                       }: any) {
+/* ============================================================================
+   PREMIUM MODAL
+============================================================================ */
+
+function PositionCreateModal({
+                                 open,
+                                 onClose,
+                                 onSubmit,
+                                 orgUnits,
+                                 positions,
+                                 register,
+                                 setValue,
+                                 errors,
+                                 loading,
+                             }: any) {
     return (
         <AnimatePresence>
-            {isOpen && (
+            {open && (
                 <>
                     <motion.div
                         className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40"
+                        onClick={onClose}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        onClick={onClose}
                     />
+
                     <motion.div
-                        className="fixed inset-0 z-50 flex items-center justify-center p-4"
-                        initial={{ opacity: 0, scale: 0.95 }}
+                        className="fixed inset-0 z-50 flex items-center justify-center px-4"
+                        initial={{ opacity: 0, scale: 0.96 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
+                        exit={{ opacity: 0, scale: 0.96 }}
                     >
-                        <Card className="w-full max-w-md shadow-2xl border-0 bg-gradient-to-br from-white to-emerald-50 dark:from-slate-900 dark:to-emerald-950">
-                            <CardHeader className="bg-gradient-to-r from-emerald-500 to-blue-500 text-white rounded-t-lg pb-5">
+                        <Card className="w-full max-w-lg border-0 shadow-2xl bg-gradient-to-br from-white to-emerald-50 dark:from-slate-900 dark:to-emerald-950">
+                            <CardHeader className="pb-6 border-b">
                                 <div className="flex justify-between items-center">
-                                    <CardTitle className="text-2xl font-semibold">
+                                    <CardTitle className="text-2xl font-bold flex items-center gap-2">
+                                        <Sparkles className="text-emerald-500" />
                                         Yangi lavozim
                                     </CardTitle>
-                                    <button onClick={onClose} className="hover:bg-white/20 rounded-lg p-1">
-                                        <X size={20} />
+                                    <button onClick={onClose}>
+                                        <X />
                                     </button>
                                 </div>
+                                <p className="text-sm text-slate-500 mt-1">
+                                    Tizimga yangi professional rol qo‘shish
+                                </p>
                             </CardHeader>
 
-                            <CardContent className="pt-5 space-y-4">
+                            <CardContent className="pt-6 space-y-5">
                                 <form onSubmit={onSubmit} className="space-y-5">
-                                    {/* Bo‘linma */}
-                                    <div>
-                                        <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                            <Building2 size={14} className="inline mr-1" /> Bo‘linma
-                                        </label>
+
+                                    {/* Org Unit */}
+                                    <Field label="Bo‘linma" icon={<Building2 size={14} />}>
                                         <Select onValueChange={(v) => setValue("org_unit_id", v)}>
                                             <SelectTrigger>
                                                 <SelectValue placeholder="Bo‘linmani tanlang" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {orgUnits.map((unit: any) => (
-                                                    <SelectItem key={unit.id} value={unit.id}>
-                                                        {unit.name_path}
-                                                    </SelectItem>
-                                                ))}
+                                                {orgUnits
+                                                    .filter((u: any) => u.id)
+                                                    .map((u: any) => (
+                                                        <SelectItem
+                                                            key={`unit-${u.id}`}
+                                                            value={String(u.id)}
+                                                        >
+                                                            {u.name_path}
+                                                        </SelectItem>
+                                                    ))}
                                             </SelectContent>
                                         </Select>
-                                        {errors.org_unit_id && (
-                                            <p className="text-red-500 text-xs mt-1">
-                                                {errors.org_unit_id.message}
-                                            </p>
-                                        )}
-                                    </div>
+                                        {errors.org_unit_id && <Error>{errors.org_unit_id.message}</Error>}
+                                    </Field>
 
-                                    {/* Lavozim nomi */}
-                                    <div>
-                                        <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                            <Briefcase size={14} className="inline mr-1" /> Lavozim nomi
-                                        </label>
+                                    {/* Title */}
+                                    <Field label="Lavozim nomi" icon={<Briefcase size={14} />}>
                                         <Input
-                                            placeholder="Masalan: Kafedra mudiri"
                                             {...register("title")}
-                                            className="h-10 rounded-lg border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-emerald-500"
+                                            placeholder="Masalan: Kafedra mudiri"
                                         />
-                                        {errors.title && (
-                                            <p className="text-red-500 text-xs mt-1">{errors.title.message}</p>
-                                        )}
-                                    </div>
+                                        {errors.title && <Error>{errors.title.message}</Error>}
+                                    </Field>
 
-                                    {/* Kvota */}
-                                    <div>
-                                        <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                            👥 Kvota
-                                        </label>
+                                    {/* Quota */}
+                                    <Field label="Kvota">
                                         <Input
                                             type="number"
                                             min={1}
-                                            placeholder="Nechta lavozim bo‘lishi mumkin"
                                             {...register("quota")}
-                                            className="h-10 rounded-lg border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-emerald-500"
+                                            placeholder="Nechta xodim bo‘lishi mumkin"
                                         />
-                                        {errors.quota && (
-                                            <p className="text-red-500 text-xs mt-1">{errors.quota.message}</p>
-                                        )}
-                                    </div>
+                                        {errors.quota && <Error>{errors.quota.message}</Error>}
+                                    </Field>
 
-                                    {/* Yagona lavozim */}
-                                    <div className="flex items-center gap-2 mt-3">
+                                    {/* Unique */}
+                                    <div className="flex items-center gap-3 pt-2">
                                         <Checkbox
-                                            id="is_unique"
-                                            onCheckedChange={(checked) =>
-                                                setValue("is_unique", Boolean(checked))
+                                            onCheckedChange={(v) =>
+                                                setValue("is_unique", Boolean(v))
                                             }
                                         />
-                                        <label htmlFor="is_unique" className="text-sm text-slate-700">
-                                            🔒 Bu lavozim yagona (bir kishilik)
-                                        </label>
+                                        <span className="text-sm text-slate-600">
+                      Bu lavozim yagona (bir kishilik)
+                    </span>
                                     </div>
 
                                     {/* Parent */}
-                                    <div>
-                                        <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                            <Layers3 size={14} className="inline mr-1" /> Rahbar lavozim
-                                        </label>
+                                    <Field label="Rahbar lavozim" icon={<Layers3 size={14} />}>
                                         <Select
                                             onValueChange={(v) => setValue("parent_position_id", v)}
                                         >
                                             <SelectTrigger>
-                                                <SelectValue placeholder="Tanlang (ixtiyoriy)" />
+                                                <SelectValue placeholder="Ixtiyoriy" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {positions.map((pos: any) => (
-                                                    <SelectItem key={pos.id} value={pos.id}>
-                                                        {pos.title}
-                                                    </SelectItem>
-                                                ))}
+                                                {positions
+                                                    .filter((p: any) => p.id)
+                                                    .map((p: any) => (
+                                                        <SelectItem
+                                                            key={`pos-${p.id}`}
+                                                            value={String(p.id)}
+                                                        >
+                                                            {p.title}
+                                                        </SelectItem>
+                                                    ))}
                                             </SelectContent>
                                         </Select>
-                                    </div>
+                                    </Field>
 
-                                    <div className="flex gap-3 pt-4">
+                                    {/* Actions */}
+                                    <div className="flex gap-3 pt-6">
                                         <Button
                                             type="button"
                                             variant="outline"
@@ -181,11 +194,12 @@ function PositionModal({
                                         <Button
                                             type="submit"
                                             disabled={loading}
-                                            className="flex-1 bg-gradient-to-r from-emerald-500 to-blue-500 hover:from-emerald-600 hover:to-blue-600 text-white"
+                                            className="flex-1 bg-gradient-to-r from-emerald-500 to-blue-500 text-white"
                                         >
                                             {loading ? "Yaratilmoqda..." : "Yaratish"}
                                         </Button>
                                     </div>
+
                                 </form>
                             </CardContent>
                         </Card>
@@ -196,16 +210,35 @@ function PositionModal({
     );
 }
 
-// --- 💎 Main Page ---
+/* ============================================================================
+   HELPERS
+============================================================================ */
+
+const Field = ({ label, icon, children }: any) => (
+    <div>
+        <label className="flex items-center gap-2 text-sm font-semibold mb-1">
+            {icon} {label}
+        </label>
+        {children}
+    </div>
+);
+
+const Error = ({ children }: any) => (
+    <p className="text-xs text-red-500 mt-1">{children}</p>
+);
+
+/* ============================================================================
+   MAIN PAGE
+============================================================================ */
+
 export default function PositionCreatePage() {
     const router = useRouter();
     const { token } = useAuth();
 
     const [orgUnits, setOrgUnits] = useState<any[]>([]);
     const [positions, setPositions] = useState<any[]>([]);
-    const [orgId, setOrgId] = useState<string | null>(null);
-    const [loading, setLoading] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
+    const [loading, setLoading] = useState(false);
 
     const {
         register,
@@ -217,120 +250,91 @@ export default function PositionCreatePage() {
         resolver: zodResolver(positionSchema),
     });
 
-    // Bo‘linma daraxtini flatten qilish
     const flattenUnits = (units: any[], prefix = ""): any[] =>
-        units.flatMap((unit) => {
-            const label = prefix ? `${prefix} › ${unit.name}` : unit.name;
-            const flattened = [{ id: unit.id, name_path: label }];
-            if (unit.children?.length) {
-                flattened.push(...flattenUnits(unit.children, label));
-            }
-            return flattened;
+        units.flatMap((u) => {
+            const name = prefix ? `${prefix} › ${u.name}` : u.name;
+            return [
+                { id: u.id, name_path: name },
+                ...(u.children ? flattenUnits(u.children, name) : []),
+            ];
         });
 
     useEffect(() => {
-        const fetchData = async () => {
+        (async () => {
             try {
                 const orgRes = await api.get("/organization/list");
                 const org = orgRes.data[0];
-                if (!org) throw new Error("Tashkilot topilmadi");
-                setOrgId(org.id);
 
-                const [unitTreeRes, positionsRes] = await Promise.all([
+                const [unitRes, posRes] = await Promise.all([
                     api.get(`/organization/units/tree/${org.id}`),
                     api.get("/organization/positions/list"),
                 ]);
 
-                setOrgUnits(flattenUnits(unitTreeRes.data.tree || []));
-                setPositions(positionsRes.data || []);
-            } catch (err) {
-                toast.error("Ma'lumotlarni yuklashda xatolik");
+                setOrgUnits(flattenUnits(unitRes.data.tree || []));
+                setPositions(posRes.data || []);
+            } catch {
+                toast.error("Ma’lumotlarni yuklashda xatolik");
             }
-        };
-        fetchData();
+        })();
     }, []);
 
     const onSubmit = handleSubmit(async (data) => {
         setLoading(true);
         try {
-            const formData = new FormData();
-            formData.append("org_unit_id", data.org_unit_id);
-            formData.append("role_id", DEFAULT_ROLE_ID);
-            formData.append("title", data.title);
-            formData.append("quota", String(data.quota));
-            formData.append("is_unique", String(data.is_unique ?? true));
+            const fd = new FormData();
+            fd.append("org_unit_id", data.org_unit_id);
+            fd.append("role_id", DEFAULT_ROLE_ID);
+            fd.append("title", data.title);
+            fd.append("quota", String(data.quota));
+            fd.append("is_unique", String(data.is_unique ?? true));
             if (data.parent_position_id) {
-                formData.append("parent_position_id", data.parent_position_id);
+                fd.append("parent_position_id", data.parent_position_id);
             }
 
-            await api.post("/organization/positions/create", formData, {
-                headers: { "Content-Type": "multipart/form-data" },
-            });
-
-            toast.success("Lavozim muvaffaqiyatli yaratildi");
+            await api.post("/organization/positions/create", fd);
+            toast.success("Lavozim yaratildi 🎉");
             reset();
             setModalOpen(false);
             router.refresh();
-        } catch (err: any) {
-            const detail =
-                err?.response?.data?.detail ??
-                (Array.isArray(err?.response?.data) && err.response.data[0]?.msg) ??
-                "Xatolik yuz berdi";
-            toast.error(detail);
+        } catch (e: any) {
+            toast.error(e?.response?.data?.detail ?? "Xatolik yuz berdi");
         } finally {
             setLoading(false);
         }
     });
 
     return (
-        <div className="space-y-6">
-            {/* Header */}
-            <motion.div
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col md:flex-row md:justify-between md:items-center gap-4"
-            >
+        <div className="space-y-8">
+            <header className="flex justify-between items-center">
                 <div>
                     <h1 className="text-4xl font-bold bg-gradient-to-r from-emerald-600 to-blue-600 bg-clip-text text-transparent">
                         Lavozimlar
                     </h1>
-                    <p className="text-slate-600 dark:text-slate-400 mt-1">
-                        Tizimdagi lavozimlarni boshqarish
+                    <p className="text-slate-500 mt-1">
+                        Tizimdagi rollar va ierarxiyani boshqarish
                     </p>
                 </div>
 
-                <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
+                <Button
                     onClick={() => setModalOpen(true)}
-                    className="flex items-center gap-2 px-6 py-3 rounded-lg shadow-lg text-white font-semibold bg-gradient-to-r from-emerald-500 to-blue-500 hover:from-emerald-600 hover:to-blue-600"
+                    className="bg-gradient-to-r from-emerald-500 to-blue-500 text-white px-6 py-3"
                 >
-                    <Plus size={20} />
-                    Yangi lavozim
-                </motion.button>
-            </motion.div>
+                    <Plus className="mr-2" /> Yangi lavozim
+                </Button>
+            </header>
 
-            {/* Lavozim ro‘yxati (bo‘sh joy uchun placeholder) */}
-            <Card className="shadow-lg border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
-                <CardHeader className="border-b border-slate-200 dark:border-slate-800">
-                    <CardTitle className="text-xl font-semibold">
-                        Jami: {positions.length} ta lavozim
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="pt-6 text-slate-500 text-center">
-                    {positions.length === 0
-                        ? "Hozircha lavozimlar mavjud emas"
-                        : "Lavozimlar ro‘yxati keyingi bosqichda ko‘rsatiladi"}
+            <Card className="border-0 shadow-lg">
+                <CardContent className="py-10 text-center text-slate-500">
+                    Jami {positions.length} ta lavozim mavjud
                 </CardContent>
             </Card>
 
-            <PositionModal
-                isOpen={modalOpen}
+            <PositionCreateModal
+                open={modalOpen}
                 onClose={() => setModalOpen(false)}
-                onCreated={() => router.refresh()}
+                onSubmit={onSubmit}
                 orgUnits={orgUnits}
                 positions={positions}
-                onSubmit={onSubmit}
                 register={register}
                 setValue={setValue}
                 errors={errors}

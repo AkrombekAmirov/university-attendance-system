@@ -21,8 +21,7 @@ from backend.interfaces.api.schemas import PositionOut
 class UserAuthController:
     """
     Auth va foydalanuvchi boshqaruvi uchun Controller.
-    - Bir request → bitta controller instance.
-    - Role tizimi olib tashlangan (faqat is_superadmin flag asosida ishlaydi).
+    Bir request → bitta controller instance.
     """
     db: DatabaseService
     request: Request
@@ -34,24 +33,40 @@ class UserAuthController:
 
     # ---------- helpers ----------
     def _fingerprint(self) -> Optional[str]:
-        return self.request.headers.get("x-fp")
+        return self.request.headers.get("x-fp") or "unknown"
 
     def _user_agent(self) -> Optional[str]:
-        return self.request.headers.get("user-agent")
+        return self.request.headers.get("user-agent") or "unknown"
 
     def _client_ip(self) -> str:
-        return self.request.headers.get("x-forwarded-for") or (
-            self.request.client.host if self.request.client else "unknown"
+        return (
+            self.request.headers.get("x-forwarded-for")
+            or (self.request.client.host if self.request.client else "unknown")
         )
 
-    # ---------- AUTH ENDPOINTS ----------
+    # ---------- AUTH ----------
     @audit_action(action="AUTH.LOGIN", entity_type="User")
     async def login(self, payload: LoginIn) -> TokenResponse:
-        """Foydalanuvchi login."""
-        user = await self.svc.authenticate(payload.username, payload.password, ip=self._client_ip())
+        user = await self.svc.authenticate(
+            payload.username,
+            payload.password,
+            ip=self._client_ip(),
+        )
+
         if not user:
-            logger.warning("❌ Login failed: {}", payload.username)
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials or locked")
+            # 🔥 Failed login ham audit + rate-limit bilan bog‘lanadi
+            logger.warning(
+                "❌ Login failed",
+                extra={
+                    "username": payload.username,
+                    "ip": self._client_ip(),
+                    "ua": self._user_agent(),
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials or locked",
+            )
 
         access, refresh = await self.svc.issue_tokens(
             user,
@@ -60,9 +75,19 @@ class UserAuthController:
             ip=self._client_ip(),
         )
 
-        redirect_path = "/admin_manage/users" if user.is_superadmin else "/staff/users"
+        redirect_path = (
+            "/admin_manage/users" if user.is_superadmin else "/staff/users"
+        )
 
-        logger.info("✅ Login success: {} → {}", payload.username, redirect_path)
+        logger.info(
+            "✅ Login success",
+            extra={
+                "username": payload.username,
+                "ip": self._client_ip(),
+                "redirect": redirect_path,
+            },
+        )
+
         return TokenResponse(
             access_token=access,
             refresh_token=refresh,
@@ -72,8 +97,12 @@ class UserAuthController:
 
     @audit_action(action="AUTH.REFRESH", entity_type="User")
     async def refresh(self, refresh_token: str) -> TokenResponse:
-        """Tokenlarni yangilash."""
-        payload = await validate_refresh_token(self.db, refresh_token, self._fingerprint())
+        payload = await validate_refresh_token(
+            self.db,
+            refresh_token,
+            self._fingerprint(),
+        )
+
         user_id = UUID(payload.sub)
 
         access, new_refresh = await self.svc.refresh_tokens(
@@ -84,7 +113,12 @@ class UserAuthController:
         )
 
         user = await self.svc.users.get_by_id(user_id)
-        redirect_path = "/admin_manage/users" if (user and user.is_superadmin) else "/staff/users"
+
+        redirect_path = (
+            "/admin_manage/users"
+            if user and user.is_superadmin
+            else "/staff/users"
+        )
 
         return TokenResponse(
             access_token=access,
@@ -95,9 +129,11 @@ class UserAuthController:
 
     @audit_action(action="AUTH.LOGOUT_ALL", entity_type="User")
     async def logout_all(self, current: User) -> dict:
-        """Foydalanuvchining barcha sessiyalarini bekor qilish."""
         await self.svc.revoke_all_sessions(current.id)
-        logger.info("🔒 All sessions revoked for {}", current.username)
+        logger.info(
+            "🔒 All sessions revoked",
+            extra={"user": current.username},
+        )
         return {"ok": True, "detail": "All sessions revoked"}
 
     # ---------- USER MANAGEMENT ----------
@@ -128,8 +164,12 @@ class UserAuthController:
         )
 
     async def me(self, current: User) -> MeOut:
-        """Foydalanuvchi o‘z profilini olish."""
-        redirect_path = "/admin_manage/users" if current.is_superadmin else "/staff/users"
+        redirect_path = (
+            "/admin_manage/users"
+            if current.is_superadmin
+            else "/staff/users"
+        )
+
         return MeOut(
             id=current.id,
             username=current.username,
@@ -137,7 +177,7 @@ class UserAuthController:
             full_name=current.full_name,
             is_active=current.is_active,
             is_superadmin=current.is_superadmin,
-            roles=[],  # endi mavjud emas
+            roles=[],
             redirect_path=redirect_path,
         )
 
@@ -163,7 +203,99 @@ class UserAuthController:
         return user
 
     async def get_users(self, current: User) -> List[UserOut]:
-        """Barcha foydalanuvchilarni olish."""
+        # from openpyxl import load_workbook
+        # from backend.file_path import get_file_path
+        # import secrets
+        # import string
+        # import re
+        # from pathlib import Path
+        #
+        # # ─────────────────────────────
+        # # PASSWORD GENERATOR
+        # # ─────────────────────────────
+        # def generate_password(length: int = 12) -> str:
+        #     alphabet = (
+        #             string.ascii_lowercase +
+        #             string.ascii_uppercase +
+        #             string.digits +
+        #             "!@#$%&*"
+        #     )
+        #     while True:
+        #         password = ''.join(secrets.choice(alphabet) for _ in range(length))
+        #         if (
+        #                 any(c.islower() for c in password) and
+        #                 any(c.isupper() for c in password) and
+        #                 any(c.isdigit() for c in password) and
+        #                 any(c in "!@#$%&*" for c in password)
+        #         ):
+        #             return password
+        #
+        # # ─────────────────────────────
+        # # USERNAME NORMALIZER
+        # # ─────────────────────────────
+        # def normalize_username(full_name: str) -> str:
+        #     if not full_name:
+        #         return ""
+        #
+        #     name = full_name.lower()
+        #
+        #     replace_map = {
+        #         "o‘": "o", "o'": "o",
+        #         "g‘": "g", "g'": "g",
+        #     }
+        #
+        #     for k, v in replace_map.items():
+        #         name = name.replace(k, v)
+        #
+        #     name = re.sub(r"[^a-z\s]", "", name)
+        #     parts = name.split()
+        #
+        #     if len(parts) < 2:
+        #         return ""
+        #
+        #     family = parts[0]
+        #     first_name = parts[1]
+        #     return f"{first_name}{family}"
+        #
+        # # ─────────────────────────────
+        # # LOAD EXCEL
+        # # ─────────────────────────────
+        # file = await get_file_path("hr_list.xlsx")
+        # workbook = load_workbook(filename=file)
+        # sheet = workbook.active
+        # rows = list(sheet.iter_rows(min_row=1, values_only=True))
+        #
+        # # ─────────────────────────────
+        # # TXT FILE PREPARE
+        # # ─────────────────────────────
+        # output_file = Path("created_users.txt")
+        #
+        # with output_file.open("w", encoding="utf-8") as f:
+        #     for row in rows:
+        #         full_name = row[0]
+        #         username = normalize_username(full_name)
+        #
+        #         if not username:
+        #             continue
+        #
+        #         password = generate_password()
+        #
+        #         # 🔐 TXT ga yozish
+        #         f.write(f"{username} : {password}\n")
+        #
+        #         # 👤 USER CREATE
+        #         await self.svc.create_user(
+        #             username=username,
+        #             email=f"{username}@uznpu.com",
+        #             password=password,  # ⚠️ hashing svc ichida bo‘lishi kerak
+        #             full_name=full_name,
+        #             passport=None,
+        #             turniket_id=None,
+        #             is_superadmin=False,
+        #             is_active=True,
+        #         )
+
+        # ─────────────────────────────
         return await self.svc.get_users()
 
     async def get_user_position_auth(self, position_id: UUID):

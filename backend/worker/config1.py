@@ -18,7 +18,7 @@ from backend.worker.tasks.limit_event_fetcher import EventFetcher
 QUEUE_MAXSIZE = 10_000
 NUM_DB_WORKERS = 5
 
-HISTORY_LIMIT = 700             # first run
+HISTORY_LIMIT = 20000             # first run
 REALTIME_INTERVAL = 0.2        # realtime polling
 REALTIME_WINDOW = 100          # offline → online sync window
 
@@ -157,7 +157,7 @@ def device_thread(device):
 
         total = client.get_total_events()
 
-        if device.last_serial_no is not None:
+        if device.last_serial_no == "":
             start = max(0, device.last_serial_no - REALTIME_WINDOW)
             print(
                 f"🔁 [{device.name}] OFFLINE SYNC "

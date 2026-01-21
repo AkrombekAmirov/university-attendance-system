@@ -108,3 +108,5 @@ export async function fetchUnitMonthlyDetailed(
     });
     return res.data;
 }
+
+export { axios };

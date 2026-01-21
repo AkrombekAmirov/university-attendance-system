@@ -4,7 +4,7 @@ import json, time, os
 from datetime import datetime
 
 # Device Settings
-DEVICE_IP = "192.128.1.215"
+DEVICE_IP = "10.130.156.2:9187"
 USERNAME = "admin"
 PASSWORD = "abcd2024"
 

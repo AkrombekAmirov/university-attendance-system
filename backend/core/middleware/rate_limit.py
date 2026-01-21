@@ -1,39 +1,53 @@
-from __future__ import annotations
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response, JSONResponse
+from starlette.responses import JSONResponse
 from starlette.requests import Request
-from backend.core.config import get_settings
 from redis.asyncio import Redis
-import time
+from backend.core.middleware.ip import get_client_ip
+from backend.core.config import get_settings
 
 settings = get_settings()
 
-class RateLimitMiddleware(BaseHTTPMiddleware):
-    """
-    IP asosida oddiy rate limit (Redis).
-    Misol: LOGIN endpoint uchun 5 req/30s va hokazo.
-    """
+PROFILE = {
+    "LOGIN": (5, 300),
+    "ME": (120, 60),
+    "REFRESH": (20, 300),
+    "AUTH": (40, 60),
+    "DEFAULT": (300, 60),
+}
 
-    def __init__(self, app, max_requests: int = 5, window_seconds: int = 30):
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app):
         super().__init__(app)
-        self.max_requests = max_requests
-        self.window = window_seconds
-        self.redis = None
+        self.redis: Redis | None = None
 
     async def dispatch(self, request: Request, call_next):
         if self.redis is None:
-            self.redis = Redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
+            self.redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
 
-        ip = request.headers.get("x-forwarded-for") or request.client.host or "unknown"
-        key = f"rl:{ip}:{request.url.path}"
-        now = int(time.time())
+        ip = get_client_ip(request)
+        path = request.url.path
 
-        # increment
-        current = await self.redis.incr(key)
-        if current == 1:
-            await self.redis.expire(key, self.window)
+        if path == "/users/auth/login":
+            limit, window = PROFILE["LOGIN"]
+        elif path == "/users/auth/me":
+            limit, window = PROFILE["ME"]
+        elif path == "/users/auth/refresh":
+            limit, window = PROFILE["REFRESH"]
+        elif path.startswith("/users/auth"):
+            limit, window = PROFILE["AUTH"]
+        else:
+            limit, window = PROFILE["DEFAULT"]
 
-        if current > self.max_requests:
-            return JSONResponse({"detail": "Too many requests"}, status_code=429)
+        key = f"rl:{ip}:{path}"
+
+        try:
+            count = await self.redis.incr(key)
+            if count == 1:
+                await self.redis.expire(key, window)
+            if count > limit:
+                return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
+        except Exception:
+            # Redis o‘lsa → API ishlaydi
+            pass
 
         return await call_next(request)
