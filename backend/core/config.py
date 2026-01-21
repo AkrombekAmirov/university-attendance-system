@@ -22,6 +22,21 @@ class AppSettings(BaseSettings):
     TIMEZONE: str = Field(default="Asia/Tashkent")
 
     # =======================
+    # 🛡 Runtime security limits
+    # =======================
+    # Max request body size (bytes). 1 MiB by default.
+    MAX_BODY_BYTES: int = Field(default=1_048_576)
+    # Per-request timeout at app layer (seconds). Keep conservative for APIs.
+    REQUEST_TIMEOUT_SECONDS: float = Field(default=15.0)
+
+    # =======================
+    # 🌐 Network / CORS / Hosts
+    # =======================
+    # Keep defaults permissive for local dev; set explicitly in production via env.
+    ALLOWED_HOSTS: list[str] = Field(default_factory=lambda: ["*"])
+    CORS_ALLOW_ORIGINS: list[str] = Field(default_factory=list)
+
+    # =======================
     # 🗄 Ma’lumotlar bazasi (PostgreSQL/Timescale)
     # =======================
     DB_USER: str = Field(default="turnikeuser")

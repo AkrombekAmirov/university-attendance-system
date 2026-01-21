@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchMyTree, fetchUnitDaily } from "@/lib/api";
-import { Card, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import {useEffect, useState} from "react";
+import {fetchMyTree, fetchUnitDaily} from "@/lib/api";
+import {Card, CardHeader, CardTitle} from "@/components/ui/card";
+import {Button} from "@/components/ui/button";
 
 import {
     ArrowLeft,
@@ -14,8 +14,8 @@ import {
 } from "lucide-react";
 
 import dayjs from "dayjs";
-import { motion, AnimatePresence } from "framer-motion";
-import { useRouter } from "next/navigation";
+import {motion, AnimatePresence} from "framer-motion";
+import {useRouter} from "next/navigation";
 
 type Step = "root" | "unit" | "staff";
 
@@ -32,6 +32,8 @@ export default function StaffUsersPage() {
 
     const [selectedDate, setSelectedDate] = useState(dayjs().format("YYYY-MM-DD"));
     const [isBottomUnit, setIsBottomUnit] = useState(false);
+    const [nodeStack, setNodeStack] = useState<any[]>([]);
+
 
     /* ===================== INITIAL LOAD ===================== */
     useEffect(() => {
@@ -64,6 +66,10 @@ export default function StaffUsersPage() {
     }
 
     function openNode(node: any) {
+        if (selectedNode) {
+            setNodeStack((prev) => [...prev, selectedNode]);
+        }
+
         setSelectedNode(node);
 
         if (node.children?.length > 0) {
@@ -74,11 +80,62 @@ export default function StaffUsersPage() {
         }
     }
 
+
     function reset() {
         setStep("root");
         setSelectedNode(null);
         setDaily([]);
     }
+
+    function goBack() {
+        setDaily([]);
+
+        setNodeStack((prev) => {
+            if (prev.length === 0) {
+                // Root darajaga qaytdik
+                setSelectedNode(null);
+                setStep("root");
+                return [];
+            }
+
+            const newStack = [...prev];
+            const parent = newStack.pop();
+
+            setSelectedNode(parent);
+
+            if (parent.children?.length > 0) {
+                setStep("unit");
+            } else {
+                setStep("staff");
+                loadDaily(parent.id, selectedDate);
+            }
+
+            return newStack;
+        });
+    }
+
+
+    function getSafeExitTime(
+        firstEntry?: string | null,
+        lastExit?: string | null,
+        minMinutes = 60
+    ): string | null {
+        if (!firstEntry || !lastExit) return null;
+
+        const entry = dayjs(firstEntry);
+        const exit = dayjs(lastExit);
+
+        // Agar vaqt noto‘g‘ri bo‘lsa
+        if (!entry.isValid() || !exit.isValid()) return null;
+
+        const diffMinutes = exit.diff(entry, "minute");
+
+        // 60 minutdan kam bo‘lsa – chiqishni YASHIRAMIZ
+        if (diffMinutes < minMinutes) return null;
+
+        return exit.format("HH:mm");
+    }
+
 
     function statusColor(item: any) {
         if (!item.first_entry) return "bg-red-100 text-red-700 border-red-200";
@@ -88,8 +145,8 @@ export default function StaffUsersPage() {
     if (loading)
         return (
             <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
+                initial={{opacity: 0}}
+                animate={{opacity: 1}}
                 className="text-center text-gray-500 py-10 animate-pulse"
             >
                 Yuklanmoqda...
@@ -103,9 +160,9 @@ export default function StaffUsersPage() {
 
     return (
         <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.6, ease: "easeOut" }}
+            initial={{opacity: 0}}
+            animate={{opacity: 1}}
+            transition={{duration: 0.6, ease: "easeOut"}}
             className="
                 space-y-6 p-4
                 bg-gradient-to-br from-indigo-50 via-white to-blue-50
@@ -116,9 +173,9 @@ export default function StaffUsersPage() {
 
             {/* HEADER */}
             <motion.div
-                initial={{ y: -20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.5 }}
+                initial={{y: -20, opacity: 0}}
+                animate={{y: 0, opacity: 1}}
+                transition={{duration: 0.5}}
                 className="
                     sticky top-0 z-20
                     flex items-center justify-between
@@ -128,16 +185,16 @@ export default function StaffUsersPage() {
             >
                 <div className="flex items-center gap-3">
                     {step !== "root" && !isBottomUnit && (
-                        <motion.div whileTap={{ scale: 0.95 }}>
+                        <motion.div whileTap={{scale: 0.95}}>
                             <Button
-                                onClick={reset}
+                                onClick={goBack}
                                 variant="ghost"
                                 className="
                                     gap-2 rounded-xl
                                     hover:bg-indigo-100 hover:text-indigo-900
                                 "
                             >
-                                <ArrowLeft size={18} />
+                                <ArrowLeft size={18}/>
                                 Orqaga
                             </Button>
                         </motion.div>
@@ -151,7 +208,7 @@ export default function StaffUsersPage() {
                             flex gap-2
                         "
                     >
-                        <FolderTree /> Xodimlar tuzilmasi
+                        <FolderTree/> Xodimlar tuzilmasi
                     </h2>
                 </div>
             </motion.div>
@@ -161,17 +218,17 @@ export default function StaffUsersPage() {
                 {step === "root" && (
                     <motion.div
                         key="root"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        transition={{ duration: 0.4 }}
+                        initial={{opacity: 0, y: 20}}
+                        animate={{opacity: 1, y: 0}}
+                        exit={{opacity: 0, y: -20}}
+                        transition={{duration: 0.4}}
                         className="grid gap-5 grid-cols-1 md:grid-cols-2"
                     >
                         {firstLevel.map((n: any) => (
                             <motion.div
                                 key={n.id}
-                                whileHover={{ scale: 1.02, y: -4 }}
-                                transition={{ type: "spring", stiffness: 120 }}
+                                whileHover={{scale: 1.02, y: -4}}
+                                transition={{type: "spring", stiffness: 120}}
                             >
                                 <Card
                                     onClick={() => openNode(n)}
@@ -198,10 +255,10 @@ export default function StaffUsersPage() {
                 {step === "unit" && selectedNode && (
                     <motion.div
                         key="unit"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        transition={{ duration: 0.4 }}
+                        initial={{opacity: 0, y: 20}}
+                        animate={{opacity: 1, y: 0}}
+                        exit={{opacity: 0, y: -20}}
+                        transition={{duration: 0.4}}
                         className="space-y-3"
                     >
                         <h3 className="text-xl font-semibold text-slate-700">
@@ -213,8 +270,8 @@ export default function StaffUsersPage() {
                             {selectedNode.children?.map((c: any) => (
                                 <motion.div
                                     key={c.id}
-                                    whileHover={{ scale: 1.02, y: -4 }}
-                                    transition={{ type: "spring", stiffness: 120 }}
+                                    whileHover={{scale: 1.02, y: -4}}
+                                    transition={{type: "spring", stiffness: 120}}
                                 >
                                     <Card
                                         onClick={() => openNode(c)}
@@ -242,25 +299,25 @@ export default function StaffUsersPage() {
                 {step === "staff" && selectedNode && (
                     <motion.div
                         key="staff"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        transition={{ duration: 0.4 }}
+                        initial={{opacity: 0, y: 20}}
+                        animate={{opacity: 1, y: 0}}
+                        exit={{opacity: 0, y: -20}}
+                        transition={{duration: 0.4}}
                         className="space-y-6"
                     >
 
                         {/* Title + Calendar + MONTHLY BUTTON */}
                         <motion.div
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.5 }}
+                            initial={{opacity: 0, y: 10}}
+                            animate={{opacity: 1, y: 0}}
+                            transition={{duration: 0.5}}
                             className="
                                 flex flex-col md:flex-row justify-between items-start md:items-center
                                 gap-4 bg-white/60 p-4 rounded-xl shadow border border-white/40 backdrop-blur
                             "
                         >
                             <h3 className="text-xl font-semibold text-slate-800 flex gap-2">
-                                <Users className="text-indigo-600" />
+                                <Users className="text-indigo-600"/>
                                 {selectedNode.name} —
                                 <span className="text-indigo-700">Davomat</span>
                             </h3>
@@ -280,7 +337,7 @@ export default function StaffUsersPage() {
 
                                 {/* Date input */}
                                 <div className="flex items-center gap-3 text-slate-700">
-                                    <Calendar size={22} className="text-indigo-600" />
+                                    <Calendar size={22} className="text-indigo-600"/>
                                     <input
                                         type="date"
                                         value={selectedDate}
@@ -302,9 +359,9 @@ export default function StaffUsersPage() {
 
                         {/* TABLE */}
                         <motion.div
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.5, delay: 0.15 }}
+                            initial={{opacity: 0, y: 10}}
+                            animate={{opacity: 1, y: 0}}
+                            transition={{duration: 0.5, delay: 0.15}}
                             className="
                                 overflow-hidden rounded-2xl shadow-xl
                                 bg-white/70 backdrop-blur border border-white/40
@@ -321,11 +378,11 @@ export default function StaffUsersPage() {
                                     <th className="p-3 text-left">F.I.Sh</th>
                                     <th className="p-3 text-left">Lavozim</th>
                                     <th className="p-3 text-center">
-                                        <Clock size={14} /> Kirish
+                                        <Clock size={14}/> Kirish
                                     </th>
                                     <th className="p-3 text-center">Kirish turniketi</th>
                                     <th className="p-3 text-center">
-                                        <Clock size={14} /> Chiqish
+                                        <Clock size={14}/> Chiqish
                                     </th>
                                     <th className="p-3 text-center">Chiqish turniketi</th>
                                 </tr>
@@ -335,9 +392,9 @@ export default function StaffUsersPage() {
                                 {daily.map((item, idx) => (
                                     <motion.tr
                                         key={item.user_id}
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        transition={{ duration: 0.3, delay: idx * 0.03 }}
+                                        initial={{opacity: 0}}
+                                        animate={{opacity: 1}}
+                                        transition={{duration: 0.3, delay: idx * 0.03}}
                                         className={`
                                                 border-b 
                                                 ${
@@ -366,14 +423,15 @@ export default function StaffUsersPage() {
                                             {item.first_device || "-"}
                                         </td>
 
-                                        <td className="p-3 text-center">
-                                            {item.last_exit
-                                                ? dayjs(item.last_exit).format("HH:mm")
-                                                : "-"}
+                                        <td className="p-3 text-center font-medium">
+                                            {getSafeExitTime(item.first_entry, item.last_exit) ?? "-"}
                                         </td>
 
+
                                         <td className="p-3 text-center text-indigo-700 font-medium">
-                                            {item.last_device || "-"}
+                                            {getSafeExitTime(item.first_entry, item.last_exit)
+                                                ? item.last_device || "-"
+                                                : "-"}
                                         </td>
                                     </motion.tr>
                                 ))}

@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.davomat.uznpu.uz";
 const BASE = `${API_URL}/organization`;
 
 export async function getOrganizationId(): Promise<string | null> {

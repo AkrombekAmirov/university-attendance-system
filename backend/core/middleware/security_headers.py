@@ -16,6 +16,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "Cross-Origin-Embedder-Policy": "require-corp",
             "Cache-Control": "no-store",
             "Pragma": "no-cache",
+            # API-safe CSP (prevents browsers from executing/embedding anything by default)
+            "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+            # Extra hardening headers
+            "X-Permitted-Cross-Domain-Policies": "none",
+            # (Non-standard but used by some user agents)
+            "Cross-Origin-Resource-Policy": "same-origin",
         })
 
         return response
