@@ -1,7 +1,7 @@
 # main.py
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -19,11 +19,11 @@ from backend.core.middleware.request_limits import (
 )
 from backend.core.middleware.rate_limit import RateLimitMiddleware
 from backend.core.middleware.audit_trail import HttpAuditMiddleware
+from backend.core.middleware.reconblock import ReconBlockMiddleware
 
 from backend.interfaces.users_api import user_router
 from backend.interfaces.api import org_router
 from backend.interfaces.turniked import turniked_router
-
 
 settings = get_settings()
 
@@ -33,13 +33,7 @@ app = FastAPI(
     docs_url=None if settings.APP_ENV == "production" else "/docs",
     redoc_url=None if settings.APP_ENV == "production" else "/redoc",
 )
-# class PreflightBypassMiddleware(BaseHTTPMiddleware):
-#     async def dispatch(self, request: Request, call_next):
-#         if request.method == "OPTIONS":
-#             return JSONResponse(status_code=204)
-#         return await call_next(request)
-#
-# app.add_middleware(PreflightBypassMiddleware)
+
 # =========================================================
 # 🔐 1. CORS — DOIM ENG BIRINCHI!
 # =========================================================
@@ -47,10 +41,10 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ALLOW_ORIGINS
-    or [
-        "https://davomat.uznpu.uz",
-        "https://api.davomat.uznpu.uz",
-    ],
+                  or [
+                      "https://davomat.uznpu.uz",
+                      "https://api.davomat.uznpu.uz",
+                  ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=[
@@ -62,6 +56,10 @@ app.add_middleware(
     ],
     max_age=600,
 )
+# =========================================================
+# 🛡 1. ACTIVE RECON BLOCKING (NEW, SENIOR LEVEL)
+# =========================================================
+app.add_middleware(ReconBlockMiddleware)
 
 # =========================================================
 # 🛡 2. Security Headers
@@ -103,6 +101,7 @@ app.add_middleware(
 # =========================================================
 app.add_middleware(RateLimitMiddleware)
 
+
 # =========================================================
 # 📜 8. Minimal Logging (NO SECRETS)
 # =========================================================
@@ -128,6 +127,7 @@ class SafeLoggingMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(SafeLoggingMiddleware)
+
 
 # =========================================================
 # 10️⃣ EXCEPTION HANDLING — NO INFORMATION LEAKAGE
@@ -161,6 +161,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"detail": "Internal server error"},
     )
+
 
 # =========================================================
 # 🔌 Routers

@@ -4,8 +4,8 @@ import os
 import json
 import logging
 from datetime import datetime
-from loguru import logger
 import structlog
+from loguru import logger
 from backend.core.config import get_settings
 
 
