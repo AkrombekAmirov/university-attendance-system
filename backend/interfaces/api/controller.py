@@ -19,6 +19,7 @@ from backend.interfaces.api.schemas import (
     AssignmentCreateIn, AssignmentOut,
     ReportingLinkCreateIn, ReportingLinkOut,
     PositionClosureCreateIn, PositionClosureOut,
+    AssignmentAssignIn, AssignmentReplaceIn, AssignmentUnassignIn,
 )
 
 
@@ -165,6 +166,63 @@ class OrganizationController:
             logger.exception("❌ Assignment yaratishda xatolik: {}", str(e))
             raise HTTPException(500, detail="Ichki tizim xatoligi")
 
+    # ======================================================
+    # ASSIGNMENT (SAFE)
+    # ======================================================
+
+    @audit_action(action="ASSIGNMENT.ASSIGN", entity_type="Assignment")
+    async def assign_user_to_position(
+            self,
+            payload: AssignmentAssignIn,
+            actor: User,
+    ) -> AssignmentOut:
+
+        if not actor.is_superadmin:
+            raise HTTPException(403, "Faqat superadmin")
+
+        assignment = await self.svc.assign_user_to_position(
+            user_id=payload.user_id,
+            position_id=payload.position_id,
+            effective_date=payload.effective_date,
+        )
+
+        return AssignmentOut.from_orm(assignment)
+
+    @audit_action(action="ASSIGNMENT.UNASSIGN", entity_type="Assignment")
+    async def unassign_user(
+            self,
+            payload: AssignmentUnassignIn,
+            actor: User,
+    ) -> dict:
+
+        if not actor.is_superadmin:
+            raise HTTPException(403, "Faqat superadmin")
+
+        count = await self.svc.unassign_user(
+            user_id=payload.user_id,
+            effective_date=payload.effective_date,
+        )
+
+        return {"terminated": count}
+
+    @audit_action(action="ASSIGNMENT.REPLACE", entity_type="Assignment")
+    async def replace_position_user(
+            self,
+            payload: AssignmentReplaceIn,
+            actor: User,
+    ) -> AssignmentOut:
+
+        if not actor.is_superadmin:
+            raise HTTPException(403, "Faqat superadmin")
+
+        assignment = await self.svc.replace_position_user(
+            position_id=payload.position_id,
+            new_user_id=payload.new_user_id,
+            effective_date=payload.effective_date,
+        )
+
+        return AssignmentOut.from_orm(assignment)
+
     async def list_assignments(self):
         return await self.svc.list_assignments()
 
@@ -238,7 +296,8 @@ class OrganizationController:
     # ======================================================
 
     @audit_action(action="CLOSURE.CREATE", entity_type="PositionClosure")
-    async def create_position_closure(self, parent_position_id: UUID, child_position_id: UUID, actor: User) -> PositionClosureOut:
+    async def create_position_closure(self, parent_position_id: UUID, child_position_id: UUID,
+                                      actor: User) -> PositionClosureOut:
         try:
             exists = await self.svc.check_closure_exists(parent_position_id, child_position_id)
             if exists:
@@ -255,7 +314,8 @@ class OrganizationController:
             logger.exception("❌ Failed to create position closure: {}", str(e))
             raise HTTPException(status_code=500, detail="Internal Server Error")
 
-    async def bulk_create_position_closures(self, closures: List[PositionClosureCreateIn], actor: User) -> List[PositionClosureOut]:
+    async def bulk_create_position_closures(self, closures: List[PositionClosureCreateIn], actor: User) -> List[
+        PositionClosureOut]:
         try:
             created = await self.svc.bulk_create_position_closures(closures)
             return [PositionClosureOut.from_orm(c) for c in created]

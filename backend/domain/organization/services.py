@@ -130,6 +130,113 @@ class OrganizationService:
 
     async def list_assignments(self) -> List[Assignment]:
         return await self.assign_repo.list_assignments()
+    # --------------------------------------------
+    # Userni lavozimga XAVFSIZ biriktirish
+    # --------------------------------------------
+    async def assign_user_to_position(
+        self,
+        *,
+        user_id: UUID,
+        position_id: UUID,
+        effective_date: date | None = None,
+    ) -> Assignment:
+
+        effective_date = effective_date or date.today()
+
+        async with self.db.session_scope() as session:
+
+            position = await self.pos_repo.get_by_id(position_id)
+            if not position or position.is_deleted:
+                raise HTTPException(404, "Lavozim topilmadi")
+
+            # 1️⃣ Agar position unique bo‘lsa → eski userni chiqaramiz
+            if position.is_unique:
+                await self.assign_repo.terminate_active_by_position(
+                    position_id,
+                    terminated_at=effective_date,
+                )
+
+            # 2️⃣ Agar user boshqa joyda ACTIVE bo‘lsa → bo‘shatamiz
+            await self.assign_repo.terminate_active_by_user(
+                user_id,
+                terminated_at=effective_date,
+            )
+
+            # 3️⃣ Yangi assignment
+            assignment = Assignment(
+                user_id=user_id,
+                position_id=position_id,
+                status="ACTIVE",
+                valid_from=effective_date,
+            )
+
+            session.add(assignment)
+            await session.flush()
+            await session.refresh(assignment)
+
+            return assignment
+
+    # --------------------------------------------
+    # Userni BUTUNLAY bo‘shatish
+    # --------------------------------------------
+    async def unassign_user(
+        self,
+        *,
+        user_id: UUID,
+        effective_date: date | None = None,
+    ) -> int:
+
+        effective_date = effective_date or date.today()
+
+        return await self.assign_repo.terminate_active_by_user(
+            user_id,
+            terminated_at=effective_date,
+        )
+
+    # --------------------------------------------
+    # Lavozimdagi userni ALMASHTIRISH
+    # --------------------------------------------
+    async def replace_position_user(
+        self,
+        *,
+        position_id: UUID,
+        new_user_id: UUID,
+        effective_date: date | None = None,
+    ) -> Assignment:
+
+        effective_date = effective_date or date.today()
+
+        async with self.db.session_scope() as session:
+
+            position = await self.pos_repo.get_by_id(position_id)
+            if not position:
+                raise HTTPException(404, "Lavozim topilmadi")
+
+            # 1️⃣ Eski userni chiqaramiz
+            await self.assign_repo.terminate_active_by_position(
+                position_id,
+                terminated_at=effective_date,
+            )
+
+            # 2️⃣ Yangi user boshqa joyda bo‘lsa → bo‘shatamiz
+            await self.assign_repo.terminate_active_by_user(
+                new_user_id,
+                terminated_at=effective_date,
+            )
+
+            # 3️⃣ Yangi assignment
+            assignment = Assignment(
+                user_id=new_user_id,
+                position_id=position_id,
+                status="ACTIVE",
+                valid_from=effective_date,
+            )
+
+            session.add(assignment)
+            await session.flush()
+            await session.refresh(assignment)
+
+            return assignment
 
     # ---------------- POSITION CLOSURE ----------------
     async def create_position_closure(self,

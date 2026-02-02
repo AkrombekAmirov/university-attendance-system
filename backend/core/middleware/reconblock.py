@@ -1,149 +1,161 @@
-# backend/core/middleware/recon_block.py
+from __future__ import annotations
 
 import re
 from urllib.parse import unquote
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import PlainTextResponse
 
 from backend.core.LoggingService import logger
 
 
 class ReconBlockMiddleware(BaseHTTPMiddleware):
     """
-    Bloklaydi:
-    - Skaner User-Agent’larni (nmap, burp, etc.)
-    - Xavfli yo‘llarni (.git, .env, backup, admin, swagger, etc.)
-    - Path traversal harakatlarini
-    - SQLi / XSS pattern’larini URL path/query’da
+    🔥 FINAL PRODUCTION RECON & RCE BLOCKER
+
+    Himoya qiladi:
+    - Automated scanners (UA based)
+    - Sensitive path probing
+    - Path traversal
+    - SQLi / XSS (low-noise)
+    - RCE / command injection (base64, shell, curl, wget, etc.)
+    - Obfuscated payloads (URL encoded)
+
+    Prinsiplar:
+    - Allowlist'dan keyin ishlaydi
+    - Jim bloklash (404)
+    - Minimal false-positive
     """
 
-    # 1. Skaner User-Agent kalit so'zlari (case-insensitive — re.IGNORECASE bilan)
-    SUSPICIOUS_UA_KEYWORDS = [
-        "nmap",
-        "burp",
-        "sqlmap",
-        "nikto",
-        "dirbuster",
-        "acunetix",
-        "nessus",
-        "metasploit",
-        "curl.*malicious",
-        "python-requests.*scanner",
-    ]
+    # --------------------------------------------------
+    # 1️⃣ Scanner / Recon User-Agents
+    # --------------------------------------------------
+    UA_REGEX = re.compile(
+        r"(nmap|sqlmap|nikto|acunetix|dirbuster|dirb|burp|nessus|metasploit|masscan)",
+        re.IGNORECASE,
+    )
 
-    # 2. Xavfli yo‘llar (pastki registerda saqlanadi)
-    SUSPICIOUS_PATHS = {
-        "/.git",
-        "/.env",
-        "/.well-known",
-        "/backup",
-        "/backups",
-        "/db_backup",
-        "/adminer",
-        "/phpmyadmin",
-        "/swagger",
-        "/swagger.json",
-        "/openapi.json",
-        "/redoc",
-        "/docs",
-        "/graphql",
-        "/actuator",
-        "/wp-admin",
-        "/manager",
-        "/webdav",
-        "/test",
-        "/tests",
-        "/tmp",
-        "/logs",
-        "/log",
-        "/config",
-        "/settings",
-        "/vendor",
-        "/node_modules",
-        "/docker-compose.yml",
-        "/dockerfile",
-        "/readme.md",
-        "/license",
-        "/changelog",
-        "/composer.json",
-        "/package.json",
-        "/.htaccess",
-        "/.bash_history",
-        "/.ssh",
-        "/passwd",
-        "/shadow",
-    }
+    # --------------------------------------------------
+    # 2️⃣ Sensitive / forbidden paths (only if reached)
+    # --------------------------------------------------
+    PATH_REGEX = re.compile(
+        r"(^|/)(\.git|\.env|phpmyadmin|adminer|swagger|openapi|redoc|"
+        r"actuator|wp-admin|wp-login|server-status|manager|webdav|"
+        r"\.ssh|\.bash_history|passwd|shadow)(/|$)",
+        re.IGNORECASE,
+    )
 
-    # 3. Xavfli pattern’lar (traversal, SQLi, XSS) — case-insensitive
-    DANGEROUS_PATTERNS = [
-        r"\.\./",           # Directory traversal
-        r"union\s+select",  # SQLi
-        r"\<script\>",      # Basic XSS
-        r"javascript:",     # JS protocol
-        r"vbscript:",       # VBScript
-        r"onload\s*=",      # Event-based XSS
-        r"eval\s*\(",       # Code eval
-    ]
+    # --------------------------------------------------
+    # 3️⃣ Directory traversal
+    # --------------------------------------------------
+    TRAVERSAL_REGEX = re.compile(r"(\.\./|\.\.\\)", re.IGNORECASE)
 
-    def __init__(self, app):
-        super().__init__(app)
-        # ✅ TO'G'RI: Bitta regex + re.IGNORECASE
-        ua_pattern = "|".join(self.SUSPICIOUS_UA_KEYWORDS)
-        self.ua_regex = re.compile(ua_pattern, re.IGNORECASE)
+    # --------------------------------------------------
+    # 4️⃣ SQLi / XSS (conservative, low false-positive)
+    # --------------------------------------------------
+    INJECTION_REGEX = re.compile(
+        r"(union\s+select|select\s+.*\s+from|<script|javascript:|onload\s*=)",
+        re.IGNORECASE,
+    )
 
-        danger_pattern = "|".join(self.DANGEROUS_PATTERNS)
-        self.danger_regex = re.compile(danger_pattern, re.IGNORECASE)
+    # --------------------------------------------------
+    # 5️⃣ RCE / Command execution (HIGH SEVERITY)
+    # --------------------------------------------------
+    RCE_REGEX = re.compile(
+        r"(base64\s*-d|/bin/(sh|bash)|bash\s+-c|sh\s+-c|"
+        r"cmd=|exec=|system\(|popen\(|"
+        r"wget\s|curl\s|nc\s|netcat\s|"
+        r"python\s+-c|perl\s+-e|ruby\s+-e|"
+        r"powershell|certutil)",
+        re.IGNORECASE,
+    )
 
     async def dispatch(self, request: Request, call_next):
-        # OPTIONS so'rovlarini o'tkazib yuborish (CORS preflight)
+        # --------------------------------------------------
+        # OPTIONS → CORS preflight → ALWAYS PASS
+        # --------------------------------------------------
         if request.method == "OPTIONS":
             return await call_next(request)
 
         client_ip = request.client.host if request.client else "unknown"
+        user_agent = request.headers.get("user-agent", "")[:150]
 
-        # 1. User-Agent tekshiruvi
-        user_agent = request.headers.get("user-agent", "")
-        if user_agent and self.ua_regex.search(user_agent):
+        raw_path = request.url.path
+        decoded_url = unquote(str(request.url)).lower()
+
+        # --------------------------------------------------
+        # 1️⃣ Recon User-Agent
+        # --------------------------------------------------
+        if user_agent and self.UA_REGEX.search(user_agent):
             logger.warning(
-                "🚨 Blocked reconnaissance attempt by User-Agent",
+                "🚨 Recon UA blocked",
                 extra={
                     "ip": client_ip,
-                    "ua": user_agent[:100],
-                    "path": request.url.path,
-                    "reason": "suspicious_user_agent",
+                    "ua": user_agent,
+                    "path": raw_path,
+                    "layer": "ua",
                 },
             )
-            return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+            return PlainTextResponse("Not Found", status_code=404)
 
-        # 2. Yo'l (path) tekshiruvi — pastki registerda
-        raw_path = request.url.path.lower()
-        decoded_path = unquote(raw_path).lower()
-
-        for suspicious in self.SUSPICIOUS_PATHS:
-            if raw_path.startswith(suspicious) or decoded_path.startswith(suspicious):
-                logger.warning(
-                    "🚨 Blocked access to sensitive path",
-                    extra={
-                        "ip": client_ip,
-                        "path": raw_path,
-                        "reason": "sensitive_path_access",
-                    },
-                )
-                return JSONResponse(status_code=403, content={"detail": "Forbidden"})
-
-        # 3. Xavfli pattern’lar
-        full_url = str(request.url).lower()
-        if self.danger_regex.search(full_url):
+        # --------------------------------------------------
+        # 2️⃣ Sensitive path probing
+        # --------------------------------------------------
+        if self.PATH_REGEX.search(raw_path):
             logger.warning(
-                "🚨 Blocked payload in URL",
+                "🚨 Sensitive path blocked",
                 extra={
                     "ip": client_ip,
-                    "url": full_url[:200],
-                    "reason": "malicious_pattern",
+                    "path": raw_path,
+                    "layer": "path",
                 },
             )
-            return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+            return PlainTextResponse("Not Found", status_code=404)
 
+        # --------------------------------------------------
+        # 3️⃣ Path traversal
+        # --------------------------------------------------
+        if self.TRAVERSAL_REGEX.search(decoded_url):
+            logger.warning(
+                "🚨 Path traversal blocked",
+                extra={
+                    "ip": client_ip,
+                    "url": decoded_url[:200],
+                    "layer": "traversal",
+                },
+            )
+            return PlainTextResponse("Not Found", status_code=404)
+
+        # --------------------------------------------------
+        # 4️⃣ SQLi / XSS (low noise)
+        # --------------------------------------------------
+        if self.INJECTION_REGEX.search(decoded_url):
+            logger.warning(
+                "🚨 Injection attempt blocked",
+                extra={
+                    "ip": client_ip,
+                    "url": decoded_url[:200],
+                    "layer": "injection",
+                },
+            )
+            return PlainTextResponse("Not Found", status_code=404)
+
+        # --------------------------------------------------
+        # 5️⃣ RCE / Command execution (CRITICAL)
+        # --------------------------------------------------
+        if self.RCE_REGEX.search(decoded_url):
+            logger.critical(
+                "🔥 RCE attempt blocked",
+                extra={
+                    "ip": client_ip,
+                    "url": decoded_url[:200],
+                    "layer": "rce",
+                },
+            )
+            return PlainTextResponse("Not Found", status_code=404)
+
+        # --------------------------------------------------
+        # PASS TO NEXT MIDDLEWARE / ROUTER
+        # --------------------------------------------------
         return await call_next(request)

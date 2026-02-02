@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, Optional, Dict, Any, Tuple
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 
@@ -394,6 +394,82 @@ class AssignmentRepository(BaseRepository[Assignment]):
 
     async def get_by_position(self, position_id: UUID) -> List[Assignment]:
         return await self.list({"position_id": position_id, "is_deleted": False})
+
+    # --- mavjud ACTIVE assignmentni yopish (position bo‘yicha)
+    async def terminate_active_by_position(
+        self,
+        position_id: UUID,
+        *,
+        terminated_at: date | None = None
+    ) -> int:
+        terminated_at = terminated_at or date.today()
+
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(Assignment)
+                .where(
+                    Assignment.position_id == position_id,
+                    Assignment.status == "ACTIVE",
+                    Assignment.is_deleted == False,
+                )
+                .with_for_update()
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+
+            for a in rows:
+                a.status = "TERMINATED"
+                a.valid_to = terminated_at
+                a.updated_at = datetime.utcnow()
+                session.add(a)
+
+            return len(rows)
+
+    # --- userning barcha ACTIVE assignmentlarini yopish
+    async def terminate_active_by_user(
+        self,
+        user_id: UUID,
+        *,
+        terminated_at: date | None = None
+    ) -> int:
+        terminated_at = terminated_at or date.today()
+
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(Assignment)
+                .where(
+                    Assignment.user_id == user_id,
+                    Assignment.status == "ACTIVE",
+                    Assignment.is_deleted == False,
+                )
+                .with_for_update()
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+
+            for a in rows:
+                a.status = "TERMINATED"
+                a.valid_to = terminated_at
+                a.updated_at = datetime.utcnow()
+                session.add(a)
+
+            return len(rows)
+
+    # --- position bo‘yicha ACTIVE assignment (lock bilan)
+    async def get_active_by_position_for_update(
+        self,
+        position_id: UUID
+    ) -> Optional[Assignment]:
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(Assignment)
+                .where(
+                    Assignment.position_id == position_id,
+                    Assignment.status == "ACTIVE",
+                    Assignment.is_deleted == False,
+                )
+                .with_for_update()
+            )
+            res = await session.execute(stmt)
+            return res.scalar_one_or_none()
 
     async def check_active_assignment(self, position_id: UUID) -> Optional[Assignment]:
         stmt = select(Assignment).where(

@@ -185,6 +185,27 @@ class AssignmentOut(BaseModel):
         from_attributes = True
 
 
+# ========================
+# ADVANCED ASSIGNMENT
+# ========================
+
+class AssignmentAssignIn(BaseModel):
+    user_id: UUID
+    position_id: UUID
+    effective_date: Optional[date] = None
+
+
+class AssignmentReplaceIn(BaseModel):
+    position_id: UUID
+    new_user_id: UUID
+    effective_date: Optional[date] = None
+
+
+class AssignmentUnassignIn(BaseModel):
+    user_id: UUID
+    effective_date: Optional[date] = None
+
+
 class ReportingLinkCreateIn(BaseModel):
     parent_position_id: UUID
     child_position_id: UUID

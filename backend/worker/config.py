@@ -20,7 +20,7 @@ QUEUE_MAXSIZE = 10_000
 NUM_DB_WORKERS = 5
 
 # 🔑 STATIC DATE FOR ALL DEVICES
-HISTORY_START_DATE = datetime(2026, 1, 1)
+HISTORY_START_DATE = datetime(2026, 2, 1, 0, 0, 0)
 
 DB_BATCH_SIZE = 50
 DB_BATCH_TIMEOUT = 0.2
@@ -40,8 +40,13 @@ def parse_event_time(evt: dict) -> Optional[datetime]:
     raw = evt.get("time")
     if not raw:
         return None
+
     dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    return dt.replace(tzinfo=None) if dt.tzinfo else dt
+
+    if dt.tzinfo:
+        dt = dt.astimezone().replace(tzinfo=None)
+
+    return dt
 
 
 # ─────────────────────────────

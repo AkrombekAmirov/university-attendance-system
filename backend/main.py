@@ -20,6 +20,11 @@ from backend.core.middleware.request_limits import (
 from backend.core.middleware.rate_limit import RateLimitMiddleware
 from backend.core.middleware.audit_trail import HttpAuditMiddleware
 from backend.core.middleware.reconblock import ReconBlockMiddleware
+from backend.core.middleware.header_sanity import HeaderSanityMiddleware
+from backend.core.middleware.behavior_guard import BehaviorGuardMiddleware
+from backend.core.middleware.method_guard import HttpMethodGuardMiddleware
+from backend.core.middleware.payload_entropy import PayloadEntropyMiddleware
+from backend.core.middleware.strict_path import StrictPathAllowlistMiddleware
 
 from backend.interfaces.users_api import user_router
 from backend.interfaces.api import org_router
@@ -57,8 +62,13 @@ app.add_middleware(
     max_age=600,
 )
 # =========================================================
-# 🛡 1. ACTIVE RECON BLOCKING (NEW, SENIOR LEVEL)
+# 🛡 1. ACTIVE RECON AND STICK BLOCKING (NEW, SENIOR LEVEL)
 # =========================================================
+app.add_middleware(StrictPathAllowlistMiddleware)
+# app.add_middleware(HttpMethodGuardMiddleware)
+# app.add_middleware(HeaderSanityMiddleware)
+# app.add_middleware(BehaviorGuardMiddleware)
+# app.add_middleware(PayloadEntropyMiddleware)
 app.add_middleware(ReconBlockMiddleware)
 
 # =========================================================

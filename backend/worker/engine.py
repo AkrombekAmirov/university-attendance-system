@@ -1,14 +1,42 @@
 # backend/worker/engine.py
 import asyncio
 import threading
-from asyncio import Queue
-from typing import List, Tuple
+from asyncio import Queue, QueueFull
+from typing import List, Tuple, Optional
 from datetime import datetime
+from collections import deque
+import time
+from uuid import UUID
 
 from requests.exceptions import ConnectionError, Timeout
 
 from backend.domain.turniked.services import TurnikedService
 from backend.worker.tasks.limit_event_fetcher import EventFetcher
+# backend/worker/static_devices.py
+
+from dataclasses import dataclass
+from uuid import UUID, uuid4
+
+@dataclass
+class StaticDevice:
+    id: UUID
+    name: str
+    ip_address: str
+    username: str
+    password: str
+
+
+# 🔐 STATIK TURNIKETLAR
+STATIC_DEVICES = [
+    StaticDevice(
+        id="c84a7053-8eb5-4587-b1d8-aaf151c162b9",
+        name="Asosiy Orqa Turniked 3",
+        ip_address="192.128.1.223",
+        username="admin",
+        password="abcd2024",
+    )
+]
+
 
 # ─────────────────────────────
 # CONFIG
@@ -16,54 +44,79 @@ from backend.worker.tasks.limit_event_fetcher import EventFetcher
 QUEUE_MAXSIZE = 10_000
 NUM_DB_WORKERS = 5
 
-HISTORY_LIMIT = 10            # birinchi ishga tushishda
-REALTIME_INTERVAL = 0.2        # realtime polling
-REALTIME_WINDOW = 100          # offline → online sync oynasi
+# 🔑 STATIC DATE FOR ALL DEVICES
+HISTORY_START_DATE = datetime(2026, 2, 1)
 
 DB_BATCH_SIZE = 50
 DB_BATCH_TIMEOUT = 0.2
+QUEUE_BACKPRESSURE_SLEEP = 0.01
 
 # ─────────────────────────────
 # GLOBAL QUEUES
 # ─────────────────────────────
-event_queue: Queue[Tuple[dict, str]] = Queue(maxsize=QUEUE_MAXSIZE)
-
-# Device holati uchun ALOHIDA queue
-# (device_id, "online" | "offline", last_event | None)
-device_state_queue: Queue[Tuple[str, str, dict | None]] = Queue()
+event_queue: Queue[Tuple[dict, UUID]] = Queue(maxsize=QUEUE_MAXSIZE)
+device_state_queue: Queue[Tuple[UUID, str, dict | None]] = Queue()
 
 # ─────────────────────────────
-# DEVICE CHECKPOINT UPDATE (DB LOOP ONLY)
+# UTILS
 # ─────────────────────────────
-async def update_device_checkpoint(
-    service: TurnikedService,
-    device_id,
-    last_event: dict,
-):
+def parse_event_time(evt: dict) -> Optional[datetime]:
+    raw = evt.get("time")
+    if not raw:
+        return None
+    dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    return dt.replace(tzinfo=None) if dt.tzinfo else dt
+
+
+# ─────────────────────────────
+# 🔑 BINARY SEARCH BY DATE
+# ─────────────────────────────
+def find_start_serial_by_date(
+    client: EventFetcher,
+    device_name: str,
+    start_date: datetime,
+) -> int:
+    total = client.get_total_events()
+    if total <= 0:
+        return 0
+
+    low, high = 0, total - 1
+    result = total
+
+    while low <= high:
+        mid = (low + high) // 2
+        evt = None
+
+        for batch in client.paged_fetch_event_range(mid, mid + 1, device_name):
+            if batch:
+                evt = batch[0]
+                break
+
+        if not evt:
+            low = mid + 1
+            continue
+
+        evt_time = parse_event_time(evt)
+        if not evt_time or evt_time < start_date:
+            low = mid + 1
+        else:
+            result = mid
+            high = mid - 1
+
+    return max(0, result)
+
+
+# ─────────────────────────────
+# DEVICE STATE
+# ─────────────────────────────
+async def update_device_checkpoint(service: TurnikedService, device_id: UUID, last_event: dict):
     serial = last_event.get("serialNo")
-    raw_time = last_event.get("time")
+    evt_time = parse_event_time(last_event)
+    if serial and evt_time:
+        await service.update_device_sync_status(device_id, serial, evt_time)
 
-    if not serial or not raw_time:
-        return
 
-    dt = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
-    if dt.tzinfo:
-        dt = dt.replace(tzinfo=None)
-
-    await service.update_device_sync_status(
-        device_id=device_id,
-        last_serial_no=serial,
-        last_event_time=dt,
-    )
-
-# ─────────────────────────────
-# DEVICE STATE WORKER (ONLINE / OFFLINE)
-# ─────────────────────────────
 async def device_state_worker(service: TurnikedService):
-    """
-    Device sync_status va checkpoint'larni
-    FAQAT MAIN EVENT LOOP’da yangilaydi
-    """
     while True:
         device_id, state, last_event = await device_state_queue.get()
         try:
@@ -71,44 +124,31 @@ async def device_state_worker(service: TurnikedService):
                 await service.device_repo.mark_online(device_id)
                 if last_event:
                     await update_device_checkpoint(service, device_id, last_event)
-
-            elif state == "offline":
+            else:
                 await service.device_repo.mark_offline(device_id)
-
-        except Exception as e:
-            print("❌ Device state worker error:", e)
         finally:
             device_state_queue.task_done()
 
-# ─────────────────────────────
-# DB BATCH FLUSH
-# ─────────────────────────────
-async def flush_batch(service: TurnikedService, batch: List[Tuple[dict, str]]):
-    last_event_per_device = {}
 
+# ─────────────────────────────
+# DB WORKERS
+# ─────────────────────────────
+async def flush_batch(service: TurnikedService, batch: List[Tuple[dict, UUID]]):
+    last_event_per_device = {}
     for event, device_id in batch:
         await service.process_realtime_event(event, device_id)
         last_event_per_device[device_id] = event
-        print(
-            f"🗄️ DB WRITE device={device_id} "
-            f"serial={event}"
-        )
 
-    # 🔑 batch tugagach checkpoint
     for device_id, evt in last_event_per_device.items():
         await device_state_queue.put((device_id, "online", evt))
 
-# ─────────────────────────────
-# DB WORKER (ASYNC)
-# ─────────────────────────────
+
 async def db_worker(service: TurnikedService):
-    buffer: List[Tuple[dict, str]] = []
+    buffer: List[Tuple[dict, UUID]] = []
 
     while True:
         try:
-            item = await asyncio.wait_for(
-                event_queue.get(), timeout=DB_BATCH_TIMEOUT
-            )
+            item = await asyncio.wait_for(event_queue.get(), timeout=DB_BATCH_TIMEOUT)
             buffer.append(item)
             event_queue.task_done()
 
@@ -121,118 +161,97 @@ async def db_worker(service: TurnikedService):
                 await flush_batch(service, buffer)
                 buffer.clear()
 
+
+async def safe_task(factory, name: str):
+    while True:
+        try:
+            await factory()
         except Exception as e:
-            print("❌ DB worker error:", e)
+            print(f"🔥 TASK CRASHED [{name}]: {e}")
+            await asyncio.sleep(1)
+
 
 # ─────────────────────────────
-# DEVICE THREAD (SYNC + REALTIME)
+# DEVICE THREAD
 # ─────────────────────────────
 def device_thread(device):
-    """
-    ❗ BU YERDA DB YO‘Q
-    ❗ FAQAT EVENT FETCH + QUEUE
-    """
-    client = EventFetcher(device.ip_address, device.username, device.password)
+    client = EventFetcher(
+        device.ip_address,
+        device.username,
+        device.password,
+    )
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    seen_serials = deque(maxlen=20_000)
 
-    async def push(evt):
-        await event_queue.put((evt, device.id))
+    def safe_push(evt):
+        while True:
+            try:
+                event_queue.put_nowait((evt, device.id))
+                return
+            except QueueFull:
+                time.sleep(QUEUE_BACKPRESSURE_SLEEP)
 
-    # ─────────────────────────
-    # 1️⃣ OFFLINE → ONLINE SYNC
-    # ─────────────────────────
     try:
         device_state_queue.put_nowait((device.id, "online", None))
 
         total = client.get_total_events()
-
-        if device.last_serial_no is not None:
-            start = max(0, device.last_serial_no - REALTIME_WINDOW)
-            print(
-                f"🔁 [{device.name}] OFFLINE SYNC "
-                f"{start} → {total} (last_serial={device.last_serial_no})"
-            )
-        else:
-            start = max(0, total - HISTORY_LIMIT)
-            print(f"🚀 [{device.name}] INITIAL SYNC {start} → {total}")
-
-        last_position = total
-        seen_serials = set()
+        start = find_start_serial_by_date(client, device.name, HISTORY_START_DATE)
 
         for batch in client.paged_fetch_event_range(start, total, device.name):
             for evt in batch:
                 serial = evt.get("serialNo")
-                if not serial:
+                if not serial or serial in seen_serials:
                     continue
-                if device.last_serial_no and serial <= device.last_serial_no:
-                    continue
+                seen_serials.append(serial)
+                safe_push(evt)
 
-                seen_serials.add(serial)
-                loop.run_until_complete(push(evt))
-
-        print(f"🔥 [{device.name}] REAL-TIME STARTED")
+        print(f"✅ HISTORY SYNC DONE [{device.name}]")
 
     except (ConnectionError, Timeout) as e:
         device_state_queue.put_nowait((device.id, "offline", None))
-        print(f"🔴 [{device.name}] OFFLINE (startup): {e}")
-        return
+        print(f"🔴 DEVICE OFFLINE [{device.name}]: {e}")
+        raise
 
-    # ─────────────────────────
-    # 2️⃣ REAL-TIME LOOP
-    # ─────────────────────────
+
+def device_supervisor(device):
     while True:
         try:
-            new_total = client.get_total_events()
-
-            if new_total > last_position:
-                for batch in client.paged_fetch_event_range(
-                    last_position, new_total, device.name
-                ):
-                    for evt in batch:
-                        serial = evt.get("serialNo")
-                        if not serial or serial in seen_serials:
-                            continue
-
-                        seen_serials.add(serial)
-                        loop.run_until_complete(push(evt))
-
-                last_position = new_total
-
-        except (ConnectionError, Timeout):
-            device_state_queue.put_nowait((device.id, "offline", None))
-            print(f"🔴 [{device.name}] CONNECTION LOST")
-
+            print(f"🟢 START DEVICE [{device.name}]")
+            device_thread(device)
+            break
         except Exception as e:
-            print(f"❌ [{device.name}] ERROR:", e)
+            print(f"🔥 DEVICE CRASH [{device.name}]: {e}")
+            time.sleep(2)
 
-        loop.run_until_complete(asyncio.sleep(REALTIME_INTERVAL))
 
 # ─────────────────────────────
 # MAIN
 # ─────────────────────────────
 async def main():
     service = TurnikedService()
-    devices = await service.get_active_devices()
+    devices = STATIC_DEVICES
 
-    # DB workers
+    if not devices:
+        print("⚠️ NO STATIC DEVICES")
+        return
+
     for _ in range(NUM_DB_WORKERS):
-        asyncio.create_task(db_worker(service))
+        asyncio.create_task(safe_task(lambda: db_worker(service), "db_worker"))
 
-    # Device state worker
-    asyncio.create_task(device_state_worker(service))
+    asyncio.create_task(
+        safe_task(lambda: device_state_worker(service), "device_state_worker")
+    )
 
-    # Device threads
     for device in devices:
         threading.Thread(
-            target=device_thread,
+            target=device_supervisor,
             args=(device,),
-            daemon=True
+            daemon=True,
         ).start()
 
-    print("✅ TURNIKET ENGINE STARTED (SAFE OFFLINE SYNC + REAL-TIME)")
+    print("✅ TURNIKET ENGINE STARTED (STATIC IP MODE)")
     await asyncio.Event().wait()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

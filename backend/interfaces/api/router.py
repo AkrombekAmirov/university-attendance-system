@@ -10,7 +10,8 @@ from .schemas import (
     PositionCreateIn, PositionOut,
     AssignmentCreateIn, AssignmentOut,
     ReportingLinkCreateIn, ReportingLinkOut,
-    PositionClosureCreateIn, PositionClosureOut
+    PositionClosureCreateIn, PositionClosureOut,
+    AssignmentAssignIn, AssignmentReplaceIn, AssignmentUnassignIn,
 )
 from typing import Annotated
 
@@ -117,6 +118,14 @@ async def create_assignment(
 @router.get("/assignments/list", response_model=list[AssignmentOut])
 async def list_assignments(ctrl: OrganizationController = Depends(get_ctrl)):
     return await ctrl.list_assignments()
+
+@router.post("/assignments/unassign")
+async def unassign_user(
+    payload: AssignmentUnassignIn,
+    ctrl: OrganizationController = Depends(get_ctrl),
+    current: User = Depends(get_current_user),
+):
+    return await ctrl.unassign_user(payload, current)
 
 
 # ==========================================================
