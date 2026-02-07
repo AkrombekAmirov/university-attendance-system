@@ -1,5 +1,8 @@
-from typing import Optional, Dict
+from __future__ import annotations
+from typing import List, Dict
 
+
+# RBAC → redirect siyosati (server authoritative)
 _ROLE_REDIRECTS: Dict[str, str] = {
     "RECTOR": "/admin/rektor/dashboard",
     "PRORECTOR": "/admin/prorektor/dashboard",
@@ -15,26 +18,15 @@ _ROLE_REDIRECTS: Dict[str, str] = {
     "WORKER": "/employee/home",
 }
 
-def decide_redirect(
-    *,
-    is_superadmin: bool,
-    meta: Optional[dict],
-) -> str:
-    """
-    Server-authoritative redirect logic.
-    Priority:
-    1. Superadmin
-    2. HR (meta.role)
-    3. Default staff
-    """
 
-    # 1️⃣ Superadmin
+def decide_redirect(roles: List[str], is_superadmin: bool) -> str:
+    """
+    Superadmin har doim admin bosh paneliga yo'naltiriladi.
+    Aks holda, ro'l kodlari bo'yicha mos sahifa tanlanadi.
+    """
     if is_superadmin:
         return "/admin_manage/users"
-
-    # 2️⃣ HR (kadrlar)
-    if meta and meta.get("role") == "HR_MANAGER":
-        return "/hr"
-
-    # 3️⃣ Default (staff)
-    return "/staff/users"
+    for code in roles:
+        if code in _ROLE_REDIRECTS:
+            return _ROLE_REDIRECTS[code]
+    return "/user/users"

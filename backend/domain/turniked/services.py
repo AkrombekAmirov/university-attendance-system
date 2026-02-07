@@ -174,7 +174,7 @@ class TurnikedService:
             return []
 
         # 2️⃣ Kunlik attendance
-        daily_rows = await self.daily_repo.list_by_unit_and_date(unit_id, day)
+        daily_rows = await self.daily_repo.list_by_users_and_date(user_ids, day)
         daily_by_user: Dict[UUID, DailyAttendance] = {r.user_id: r for r in daily_rows}
 
         # 3️⃣ Userlar
@@ -296,7 +296,11 @@ class TurnikedService:
             return []
 
         # 2) Shu bo‘lim + oy bo‘yicha mavjud DailyAttendance yozuvlarini oldindan olib qo‘yamiz
-        monthly_daily_rows = await self.daily_repo.list_by_unit_and_month(unit_id, year, month)
+        monthly_daily_rows = await self.daily_repo.list_by_users_and_month(
+            user_ids=user_ids,
+            year=year,
+            month=month
+        )
 
         # (user_id, event_date) bo‘yicha index
         daily_index: Dict[tuple[UUID, date], DailyAttendance] = {

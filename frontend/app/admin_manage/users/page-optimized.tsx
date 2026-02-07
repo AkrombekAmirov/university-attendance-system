@@ -1,6 +1,6 @@
 "use client";
 
-import {useState, useEffect, useMemo, useCallback} from "react";
+import {useState, useEffect} from "react";
 import {useForm, FormProvider} from "react-hook-form";
 import {z} from "zod";
 import {zodResolver} from "@hookform/resolvers/zod";
@@ -23,8 +23,14 @@ import {Label} from "@/components/ui/label";
 
 // Libs
 import {api} from "@/lib/api";
-import {unassignUserFromAllPositions} from "@/lib/organization/orgunit";
 import {fetchMe} from "@/lib/me";
+
+// Hooks
+import {useUsers, useUserActions} from "@/hooks/useUsers";
+import {useDebounce} from "@/hooks/useDebounce";
+
+// Components
+import {VirtualizedUserTable} from "@/components/VirtualizedUserTable";
 
 // ========================
 // TYPES & SCHEMAS
@@ -81,31 +87,6 @@ const assignmentSchema = z.object({
     status: z.enum(["ACTIVE", "BLOCKED", "RESIGNED"]).default("ACTIVE"),
 });
 
-const handleUnassignUser = async (user: User) => {
-    if (!user.position_title) {
-        toast.info("Bu foydalanuvchi allaqachon lavozimsiz");
-        return;
-    }
-
-    const ok = window.confirm(
-        `${user.full_name || user.username} lavozimdan to‘liq ozod etilsinmi?`
-    );
-    if (!ok) return;
-
-    try {
-        await unassignUserFromAllPositions({
-            user_id: user.id,
-            // effective_date: "2026-02-02", // ixtiyoriy, hozir kerak emas
-        });
-
-        toast.success("Foydalanuvchi lavozimdan to‘liq ozod etildi");
-        await reloadUsers();
-    } catch (e: any) {
-        toast.error(e.message || "Xatolik yuz berdi");
-    }
-};
-
-
 type CreateUserInput = z.infer<typeof createUserSchema>;
 type UpdateUserInput = z.infer<typeof updateUserSchema>;
 type AssignmentInput = z.infer<typeof assignmentSchema>;
@@ -119,7 +100,7 @@ const parseError = (e: any): string => {
     if (data?.detail) {
         return typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
     }
-    return "So‘rovda xatolik yuz berdi.";
+    return "So'rovda xatolik yuz berdi.";
 };
 
 const flattenUnits = (units: OrgUnitNode[], prefix = ""): FlattenedUnit[] =>
@@ -197,7 +178,7 @@ const BaseModal = ({
 function UserCreateModal({isOpen, onClose, onSuccess}: {
     isOpen: boolean;
     onClose: () => void;
-    onSuccess: () => void
+    onSuccess: (data: CreateUserInput) => Promise<void>
 }) {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const form = useForm<CreateUserInput>({resolver: zodResolver(createUserSchema)});
@@ -205,15 +186,11 @@ function UserCreateModal({isOpen, onClose, onSuccess}: {
     const onSubmit = async (data: CreateUserInput) => {
         setIsSubmitting(true);
         try {
-            const formData = new FormData();
-            Object.entries(data).forEach(([key, value]) => value && formData.append(key, value));
-            await api.post("/users/create_simple", formData);
-            toast.success("Foydalanuvchi muvaffaqiyatli yaratildi!");
+            await onSuccess(data);
             form.reset();
-            onSuccess();
             onClose();
         } catch (e) {
-            toast.error(parseError(e));
+            // Error is handled in the parent
         } finally {
             setIsSubmitting(false);
         }
@@ -276,7 +253,7 @@ function UserEditModal({isOpen, onClose, user, onSuccess}: {
     isOpen: boolean;
     onClose: () => void;
     user: User | null;
-    onSuccess: () => void
+    onSuccess: (data: UpdateUserInput) => Promise<void>
 }) {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const form = useForm<UpdateUserInput>({resolver: zodResolver(updateUserSchema)});
@@ -297,18 +274,10 @@ function UserEditModal({isOpen, onClose, user, onSuccess}: {
         if (!user) return;
         setIsSubmitting(true);
         try {
-            const formData = new FormData();
-            Object.entries(data).forEach(([key, value]) => {
-                if (value !== undefined && value !== null && value !== (user as any)[key]) {
-                    formData.append(key, value);
-                }
-            });
-            await api.put(`/users/update_basic/${user.id}`, formData);
-            toast.success("Muvaffaqiyatli yangilandi!");
-            onSuccess();
+            await onSuccess(data);
             onClose();
         } catch (e) {
-            toast.error(parseError(e));
+            // Error is handled in the parent
         } finally {
             setIsSubmitting(false);
         }
@@ -369,7 +338,7 @@ function UserAssignmentModal({isOpen, onClose, user, onSuccess}: {
     isOpen: boolean;
     onClose: () => void;
     user: User | null;
-    onSuccess: () => void
+    onSuccess: (data: AssignmentInput) => Promise<void>
 }) {
     const [orgUnits, setOrgUnits] = useState<FlattenedUnit[]>([]);
     const [positions, setPositions] = useState<Position[]>([]);
@@ -377,7 +346,7 @@ function UserAssignmentModal({isOpen, onClose, user, onSuccess}: {
     const [isLoading, setIsLoading] = useState(false);
     const form = useForm<AssignmentInput>({resolver: zodResolver(assignmentSchema), defaultValues: {status: "ACTIVE"}});
 
-    const loadOrgTree = useCallback(async () => {
+    const loadOrgTree = async () => {
         try {
             const orgRes = await api.get<{ id: string }[]>("/organization/list");
             const orgId = orgRes.data[0]?.id;
@@ -387,9 +356,9 @@ function UserAssignmentModal({isOpen, onClose, user, onSuccess}: {
         } catch (e) {
             toast.error("Bo'limlar yuklanmadi");
         }
-    }, []);
+    };
 
-    const loadPositions = useCallback(async (unitId: string) => {
+    const loadPositions = async (unitId: string) => {
         try {
             const res = await api.get<Position[]>(`/organization/positions/by-unit/${unitId}`);
             setPositions(res.data || []);
@@ -398,7 +367,7 @@ function UserAssignmentModal({isOpen, onClose, user, onSuccess}: {
             setPositions([]);
             toast.error("Lavozimlar yuklanmadi");
         }
-    }, [form]);
+    };
 
     useEffect(() => {
         if (isOpen) {
@@ -407,7 +376,7 @@ function UserAssignmentModal({isOpen, onClose, user, onSuccess}: {
             setSelectedUnitId(null);
             setPositions([]);
         }
-    }, [isOpen, loadOrgTree, form]);
+    }, [isOpen, form]);
 
     const handleUnitChange = (unitId: string) => {
         setSelectedUnitId(unitId);
@@ -418,19 +387,10 @@ function UserAssignmentModal({isOpen, onClose, user, onSuccess}: {
         if (!user) return;
         setIsLoading(true);
         try {
-            const formData = new FormData();
-            formData.append("user_id", user.id);
-            formData.append("position_id", data.position_id);
-            formData.append("status", data.status);
-            if (data.valid_from) formData.append("valid_from", data.valid_from);
-            if (data.valid_to) formData.append("valid_to", data.valid_to);
-
-            await api.post("/organization/assignments/create", formData);
-            toast.success("Foydalanuvchi lavozimga biriktirildi!");
-            onSuccess();
+            await onSuccess(data);
             onClose();
         } catch (e) {
-            toast.error(parseError(e));
+            // Error is handled in the parent
         } finally {
             setIsLoading(false);
         }
@@ -504,7 +464,6 @@ function UserAssignmentModal({isOpen, onClose, user, onSuccess}: {
                                             </SelectItem>
                                         ))}
                                         {positions.length === 0 && selectedUnitId && (
-                                            // ✅ XATO Tuzatildi: value="no-position" — hech qanday ma'noga ega emas, lekin valid!
                                             <SelectItem value="no-position" disabled>
                                                 Lavozimlar topilmadi
                                             </SelectItem>
@@ -559,14 +518,21 @@ function UserAssignmentModal({isOpen, onClose, user, onSuccess}: {
 
 export default function UserManagementPage() {
     const [me, setMe] = useState<any>(null);
-    const [users, setUsers] = useState<User[]>([]);
-    const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
+    const [page, setPage] = useState(1);
+    const [limit] = useState(50);
 
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [isUpdateOpen, setIsUpdateOpen] = useState(false);
     const [isAssignmentOpen, setIsAssignmentOpen] = useState(false);
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
+
+    // Debounced search
+    const debouncedSearch = useDebounce(search, 300);
+
+    // React Query hooks
+    const {data: usersData, isLoading, error} = useUsers(debouncedSearch, page, limit);
+    const userActions = useUserActions();
 
     // Init
     useEffect(() => {
@@ -575,43 +541,81 @@ export default function UserManagementPage() {
             if (!info) return (window.location.href = "/auth/login");
             if (!info.is_superadmin) return (window.location.href = info.redirect_path || "/");
             setMe(info);
-            try {
-                const {data} = await api.get<User[]>("/users/list_full");
-                setUsers(data);
-            } catch (e) {
-                toast.error("Foydalanuvchilar ro'yxati yuklanmadi");
-            } finally {
-                setLoading(false);
-            }
         };
         init();
     }, []);
 
-    const reloadUsers = useCallback(async () => {
-        try {
-            const {data} = await api.get<User[]>("/users/list_full");
-            setUsers(data);
-        } catch (e) {
-            toast.error("Ro'yxat yangilanmadi");
-        }
-    }, []);
+    const users = usersData?.data || [];
+    const total = usersData?.total || 0;
+    const totalPages = Math.ceil(total / limit);
 
-    const filteredUsers = useMemo(() => {
-        const q = search.toLowerCase().trim();
-        if (!q) return users;
-        return users.filter(
-            (u) =>
-                u.full_name?.toLowerCase().includes(q) ||
-                u.username.toLowerCase().includes(q) ||
-                u.passport?.toLowerCase().includes(q) ||
-                u.email?.toLowerCase().includes(q) ||
-                u.turniked_id?.toLowerCase().includes(q) ||
-                u.position_title?.toLowerCase().includes(q) ||
-                u.org_unit_name?.toLowerCase().includes(q)
+    const handleEdit = (user: User) => {
+        setSelectedUser(user);
+        setIsUpdateOpen(true);
+    };
+
+    const handleAssign = (user: User) => {
+        setSelectedUser(user);
+        setIsAssignmentOpen(true);
+    };
+
+    const handleUnassign = async (user: User) => {
+        if (!user.position_title) {
+            toast.info("Bu foydalanuvchi allaqachon lavozimsiz");
+            return;
+        }
+
+        const ok = window.confirm(
+            `${user.full_name || user.username} lavozimdan to'liq ozod etilsinmi?`
         );
-    }, [users, search]);
+        if (!ok) return;
+
+        try {
+            await userActions.unassignUser(user.id);
+        } catch (e: any) {
+            toast.error(e.message || "Xatolik yuz berdi");
+        }
+    };
+
+    const handleCreateUser = async (data: CreateUserInput) => {
+        const formData = new FormData();
+        Object.entries(data).forEach(([key, value]) => value && formData.append(key, value));
+        await userActions.createUser(formData);
+    };
+
+    const handleUpdateUser = async (data: UpdateUserInput) => {
+        if (!selectedUser) return;
+        const formData = new FormData();
+        Object.entries(data).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== (selectedUser as any)[key]) {
+                formData.append(key, value);
+            }
+        });
+        await userActions.updateUser({userId: selectedUser.id, userData: formData});
+    };
+
+    const handleAssignUser = async (data: AssignmentInput) => {
+        if (!selectedUser) return;
+        const formData = new FormData();
+        formData.append("user_id", selectedUser.id);
+        formData.append("position_id", data.position_id);
+        formData.append("status", data.status);
+        if (data.valid_from) formData.append("valid_from", data.valid_from);
+        if (data.valid_to) formData.append("valid_to", data.valid_to);
+        await userActions.assignUser(formData);
+    };
 
     if (!me) return null;
+
+    if (error) {
+        return (
+            <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
+                <div className="text-center py-8">
+                    <p className="text-red-500 text-lg">Xatolik yuz berdi. Iltimos, sahifani qayta yuklang.</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8 space-y-6">
@@ -625,7 +629,7 @@ export default function UserManagementPage() {
 
             <Card>
                 <CardHeader>
-                    <CardTitle>Jami: {filteredUsers.length} / {users.length}</CardTitle>
+                    <CardTitle>Jami: {users.length} / {total}</CardTitle>
                 </CardHeader>
                 <CardContent>
                     <div className="mb-4 flex flex-col sm:flex-row gap-2">
@@ -642,86 +646,58 @@ export default function UserManagementPage() {
                         )}
                     </div>
 
-                    {loading ? (
-                        <p className="text-center py-8 text-gray-500">Yuklanmoqda...</p>
-                    ) : filteredUsers.length === 0 ? (
-                        <p className="text-center py-8 text-gray-500">Hech narsa topilmadi</p>
+                    {isLoading && users.length === 0 ? (
+                        <div className="h-[600px] flex items-center justify-center">
+                            <div className="text-center">
+                                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+                                <p className="mt-2 text-gray-500">Yuklanmoqda...</p>
+                            </div>
+                        </div>
                     ) : (
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                                <thead>
-                                <tr className="bg-gray-50 text-left">
-                                    {["F.I.Sh", "Username", "Lavozim", "Bo'lim", "Turniket ID", "Email", "Harakatlar"].map((h) => (
-                                        <th key={h} className="p-3 font-medium text-gray-700">{h}</th>
-                                    ))}
-                                </tr>
-                                </thead>
-                                <tbody>
-                                {filteredUsers.map((u) => (
-                                    <tr key={u.id} className="border-b hover:bg-gray-50 transition-colors">
-                                        <td className="p-3 font-medium">{u.full_name || "-"}</td>
-                                        <td className="p-3 text-gray-600">{u.username}</td>
-                                        <td className="p-3">{u.position_title || "-"}</td>
-                                        <td className="p-3">{u.org_unit_name || "-"}</td>
-                                        <td className="p-3">{u.turniked_id || "-"}</td>
-                                        <td className="p-3 text-gray-600">{u.email || "-"}</td>
-                                        <td className="p-3">
-                                            <div className="flex gap-2 justify-end">
+                        <VirtualizedUserTable
+                            users={users}
+                            onEdit={handleEdit}
+                            onAssign={handleAssign}
+                            onUnassign={handleUnassign}
+                            isUnassigning={userActions.isUnassigning}
+                        />
+                    )}
 
-                                                {/* 🔓 UNASSIGN BUTTON */}
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    disabled={!u.position_title}
-                                                    onClick={() => handleUnassignUser(u)}
-                                                    className="border-red-300 text-red-600 hover:bg-red-50"
-                                                >
-                                                    <X size={14} className="mr-1"/>
-                                                    Ozod etish
-                                                </Button>
-
-                                                {/* 🔗 ASSIGN */}
-                                                <Button
-                                                    size="sm"
-                                                    className="bg-purple-600 hover:bg-purple-700 text-white"
-                                                    onClick={() => {
-                                                        setSelectedUser(u);
-                                                        setIsAssignmentOpen(true);
-                                                    }}
-                                                >
-                                                    <Link2 size={14} className="mr-1"/> Biriktirish
-                                                </Button>
-
-                                                {/* ✏️ EDIT */}
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    onClick={() => {
-                                                        setSelectedUser(u);
-                                                        setIsUpdateOpen(true);
-                                                    }}
-                                                >
-                                                    <Pencil size={14} className="mr-1"/> Tahrirlash
-                                                </Button>
-
-                                            </div>
-                                        </td>
-
-                                    </tr>
-                                ))}
-                                </tbody>
-                            </table>
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                        <div className="flex justify-center items-center gap-2 mt-4">
+                            <Button
+                                variant="outline"
+                                onClick={() => setPage(p => Math.max(1, p - 1))}
+                                disabled={page === 1}
+                            >
+                                Oldingi
+                            </Button>
+                            <span className="text-sm text-gray-600">
+                                Sahifa {page} / {totalPages}
+                            </span>
+                            <Button
+                                variant="outline"
+                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                disabled={page === totalPages}
+                            >
+                                Keyingi
+                            </Button>
                         </div>
                     )}
                 </CardContent>
             </Card>
 
-            <UserCreateModal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} onSuccess={reloadUsers}/>
+            <UserCreateModal 
+                isOpen={isCreateOpen} 
+                onClose={() => setIsCreateOpen(false)} 
+                onSuccess={handleCreateUser}
+            />
             <UserEditModal
                 isOpen={isUpdateOpen}
                 onClose={() => setIsUpdateOpen(false)}
                 user={selectedUser}
-                onSuccess={reloadUsers}
+                onSuccess={handleUpdateUser}
             />
             <UserAssignmentModal
                 isOpen={isAssignmentOpen}
@@ -730,7 +706,7 @@ export default function UserManagementPage() {
                     setSelectedUser(null);
                 }}
                 user={selectedUser}
-                onSuccess={reloadUsers}
+                onSuccess={handleAssignUser}
             />
         </div>
     );

@@ -6,6 +6,8 @@ from datetime import datetime
 from sqlmodel import select
 from datetime import date
 from uuid import UUID
+from sqlalchemy import func
+from sqlalchemy.sql import over
 
 from backend.core.DatabaseService.base import DatabaseService
 from backend.core.security import (
@@ -20,7 +22,7 @@ from backend.domain.organization.org_repo import OrganizationRepository, Positio
     PositionClosureRepository, AssignmentRepository
 from backend.domain.organization.models import Position
 from backend.domain.user.models import User
-from backend.domain.organization.models import Assignment
+from backend.domain.organization.models import Assignment, OrgUnit, Organization
 from .schemas import UserUpdateIn
 
 settings = get_settings()
@@ -103,6 +105,129 @@ class UserService:
                 # organization
                 "organization_id": org_id,
                 "organization_name": org_name,
+            })
+
+        return result
+
+    async def list_full_with_assignment(self) -> list[dict]:
+        async with self.db.session_scope() as s:
+
+            # ✅ 1. Window function: har bir user uchun bitta ACTIVE assignment
+            assignment_ranked = (
+                select(
+                    Assignment.user_id,
+                    Assignment.position_id,
+                    over(
+                        func.row_number(),
+                        partition_by=Assignment.user_id,
+                        order_by=Assignment.valid_from.desc()
+                    ).label("rn")
+                )
+                .where(Assignment.status == "ACTIVE")
+                .subquery()
+            )
+
+            # ✅ 2. Asosiy query
+            stmt = (
+                select(
+                    User.id,
+                    User.username,
+                    User.full_name,
+                    User.passport,
+                    User.phone_number,
+                    User.email,
+                    User.turniked_id,
+                    User.is_active,
+                    User.is_superadmin,
+                    User.last_login_at,
+                    User.last_login_ip,
+
+                    assignment_ranked.c.position_id,
+                    Position.title.label("position_title"),
+
+                    OrgUnit.id.label("org_unit_id"),
+                    OrgUnit.name.label("org_unit_name"),
+
+                    Organization.id.label("organization_id"),
+                    Organization.name.label("organization_name"),
+                )
+                .select_from(User)
+                .outerjoin(
+                    assignment_ranked,
+                    (assignment_ranked.c.user_id == User.id)
+                    & (assignment_ranked.c.rn == 1)
+                )
+                .outerjoin(Position, Position.id == assignment_ranked.c.position_id)
+                .outerjoin(OrgUnit, OrgUnit.id == Position.org_unit_id)
+                .outerjoin(Organization, Organization.id == OrgUnit.organization_id)
+                .where(User.is_deleted == False)
+                .order_by(User.full_name)
+            )
+
+            res = await s.execute(stmt)
+            rows = res.all()
+
+            return [
+                {
+                    "id": r.id,
+                    "username": r.username,
+                    "full_name": r.full_name,
+                    "passport": r.passport,
+                    "phone_number": r.phone_number,
+                    "email": r.email,
+                    "turniked_id": r.turniked_id,
+                    "is_active": r.is_active,
+                    "is_superadmin": r.is_superadmin,
+                    "last_login_at": r.last_login_at,
+                    "last_login_ip": r.last_login_ip,
+
+                    "position_id": r.position_id,
+                    "position_title": r.position_title,
+
+                    "org_unit_id": r.org_unit_id,
+                    "org_unit_name": r.org_unit_name,
+
+                    "organization_id": r.organization_id,
+                    "organization_name": r.organization_name,
+                }
+                for r in rows
+            ]
+
+    async def list_unassigned(self) -> List[dict]:
+        """Faqat ACTIVE lavozimga biriktirilmagan userlar"""
+        users = await self.users.list({"is_deleted": False})
+        result = []
+
+        for u in users:
+            assignments = await self.assign_repo.get_by_user(u.id)
+
+            # ❗ AGAR ACTIVE assignment bo‘lsa — SKIP
+            has_active = any(a.status == "ACTIVE" for a in assignments)
+            if has_active:
+                continue
+
+            # ❗ faqat lavozimsiz userlar shu yerga tushadi
+            result.append({
+                "id": u.id,
+                "username": u.username,
+                "full_name": u.full_name,
+                "passport": u.passport,
+                "phone_number": u.phone_number,
+                "email": u.email,
+                "turniked_id": u.turniked_id,
+                "is_active": u.is_active,
+                "is_superadmin": u.is_superadmin,
+                "last_login_at": u.last_login_at,
+                "last_login_ip": u.last_login_ip,
+
+                # assignment doim None
+                "position_id": None,
+                "position_title": None,
+
+                "org_unit_id": None,
+                "org_unit_name": None,
+                "organization_id": None,
+                "organization_name": None,
             })
 
         return result

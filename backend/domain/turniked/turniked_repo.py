@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import date, datetime,time
+from datetime import date, datetime, time
 from typing import Optional, List, Dict
 from calendar import monthrange
 from sqlmodel import select
@@ -18,6 +18,7 @@ WORK_START = time(9, 0, 0)
 WORK_END = time(18, 0, 0)
 LUNCH_START = time(13, 0, 0)
 LUNCH_END = time(14, 0, 0)
+
 
 class AttendanceEventRepository(BaseRepository[AttendanceEvent]):
     def __init__(self, db: Optional[DatabaseService] = None):
@@ -237,7 +238,57 @@ class DailyAttendanceRepository(BaseRepository[DailyAttendance]):
     def __init__(self, db: Optional[DatabaseService] = None):
         super().__init__(DailyAttendance, db)
 
-    async def get_by_person_and_date(self, person_id: UUID, day: date) -> Optional[DailyAttendance]:
+    async def list_by_users_and_month(
+            self,
+            user_ids: list[UUID],
+            year: int,
+            month: int
+    ) -> list[DailyAttendance]:
+        async with self.db.session_scope() as session:
+            first_day = date(year, month, 1)
+            last_day = date(year, month, monthrange(year, month)[1])
+
+            stmt = (
+                select(DailyAttendance)
+                .where(
+                    DailyAttendance.user_id.in_(user_ids),
+                    DailyAttendance.event_date >= first_day,
+                    DailyAttendance.event_date <= last_day,
+                    DailyAttendance.is_deleted == False
+                )
+                .order_by(
+                    DailyAttendance.user_id,
+                    DailyAttendance.event_date.asc()
+                )
+            )
+            res = await session.execute(stmt)
+            return res.scalars().all()
+
+    async def list_by_users_and_date(
+            self,
+            user_ids: list[UUID],
+            day: date
+    ) -> list[DailyAttendance]:
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(DailyAttendance)
+                .where(
+                    DailyAttendance.user_id.in_(user_ids),
+                    DailyAttendance.event_date == day,
+                    DailyAttendance.is_deleted == False
+                )
+            )
+            res = await session.execute(stmt)
+            return res.scalars().all()
+
+    async def get_by_person_and_date(
+            self,
+            person_id: UUID,
+            day: date
+    ) -> Optional[DailyAttendance]:
+        """
+        Xodim bir kunda ishga kelganmi — org_unit’dan qat’i nazar.
+        """
         async with self.db.session_scope() as session:
             stmt = (
                 select(DailyAttendance)
@@ -246,9 +297,11 @@ class DailyAttendanceRepository(BaseRepository[DailyAttendance]):
                     DailyAttendance.event_date == day,
                     DailyAttendance.is_deleted == False
                 )
+                .order_by(DailyAttendance.created_at.asc())
+                .limit(1)
             )
-            result = await session.execute(stmt)
-            return result.scalar_one_or_none()
+            res = await session.execute(stmt)
+            return res.scalar_one_or_none()
 
     async def list_by_unit_and_month(self, unit_id: UUID, year: int, month: int) -> List[DailyAttendance]:
         async with self.db.session_scope() as session:
@@ -279,11 +332,11 @@ class DailyAttendanceRepository(BaseRepository[DailyAttendance]):
             return instance
 
     async def upsert_daily(
-        self,
-        user_id: UUID,
-        org_unit_id: UUID,
-        date_: date,
-        updates: Dict[str, any]
+            self,
+            user_id: UUID,
+            org_unit_id: UUID,
+            date_: date,
+            updates: Dict[str, any]
     ) -> DailyAttendance:
         existing = await self.get_by_person_and_date(user_id, date_)
         if existing:
@@ -343,12 +396,12 @@ class MonthlyAttendanceRepository(BaseRepository[MonthlyAttendanceSummary]):
             return result.scalar_one_or_none()
 
     async def upsert_monthly(
-        self,
-        user_id: UUID,
-        org_unit_id: UUID,
-        year: int,
-        month: int,
-        updates: Dict[str, any]
+            self,
+            user_id: UUID,
+            org_unit_id: UUID,
+            year: int,
+            month: int,
+            updates: Dict[str, any]
     ) -> MonthlyAttendanceSummary:
         existing = await self.get_by_user_and_month(user_id, year, month)
         if existing:
@@ -416,6 +469,7 @@ class DeviceRepository(BaseRepository[Device]):
             )
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
+
     async def get_by_id(self, device_id: UUID) -> Optional[Device]:
         async with self.db.session_scope() as session:
             stmt = (

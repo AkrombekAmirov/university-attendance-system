@@ -14,7 +14,7 @@ from backend.domain.user.models import User
 from backend.domain.user.services import UserService
 from backend.domain.organization.services import OrganizationService
 from .schemas import LoginIn, RegisterIn, TokenResponse, MeOut, UserCreateIn, UserOut, UserUpdateIn
-from backend.interfaces.api.schemas import PositionOut
+from backend.interfaces.users_api.policies import decide_redirect
 
 
 @dataclass
@@ -40,8 +40,8 @@ class UserAuthController:
 
     def _client_ip(self) -> str:
         return (
-            self.request.headers.get("x-forwarded-for")
-            or (self.request.client.host if self.request.client else "unknown")
+                self.request.headers.get("x-forwarded-for")
+                or (self.request.client.host if self.request.client else "unknown")
         )
 
     # ---------- AUTH ----------
@@ -75,8 +75,9 @@ class UserAuthController:
             ip=self._client_ip(),
         )
 
-        redirect_path = (
-            "/admin_manage/users" if user.is_superadmin else "/staff/users"
+        redirect_path = decide_redirect(
+            is_superadmin=user.is_superadmin,
+            meta=user.meta
         )
 
         logger.info(
@@ -114,10 +115,9 @@ class UserAuthController:
 
         user = await self.svc.users.get_by_id(user_id)
 
-        redirect_path = (
-            "/admin_manage/users"
-            if user and user.is_superadmin
-            else "/staff/users"
+        redirect_path = decide_redirect(
+            is_superadmin=user.is_superadmin if user else False,
+            meta=user.meta if user else None
         )
 
         return TokenResponse(
@@ -164,10 +164,9 @@ class UserAuthController:
         )
 
     async def me(self, current: User) -> MeOut:
-        redirect_path = (
-            "/admin_manage/users"
-            if current.is_superadmin
-            else "/staff/users"
+        redirect_path = decide_redirect(
+            is_superadmin=current.is_superadmin,
+            meta=current.meta,
         )
 
         return MeOut(
@@ -305,7 +304,7 @@ class UserAuthController:
     async def list_full_for_users(self, current: User):
         if not current.is_superadmin:
             raise HTTPException(status_code=403, detail="Ruxsat yo'q")
-        return await self.svc.list_full()
+        return await self.svc.list_full_with_assignment()
 
     async def update_user_basic(
             self,

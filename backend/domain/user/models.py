@@ -9,7 +9,6 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 
 
-
 # =====================================================
 # Base Model
 # =====================================================
@@ -133,3 +132,6 @@ class User(BaseSQLModel, table=True):
 
     def mark_password_change(self):
         self.password_changed_at = datetime.utcnow()
+
+    def has_role(self, role: str) -> bool:
+        return bool(self.meta and self.meta.get("role") == role)

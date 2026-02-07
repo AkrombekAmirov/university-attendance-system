@@ -108,5 +108,27 @@ export async function fetchUnitMonthlyDetailed(
     });
     return res.data;
 }
+// HR API
+export async function fetchHrUnits() {
+    const res = await api.get("/hr/units");
+    return res.data;
+}
+export async function fetchHrUnitDaily(
+    unitId: string,
+    day: string
+) {
+    const res = await api.get("/hr/daily/page", {
+        params: { unit_id: unitId, day }
+    });
+    return res.data;
+}
+// HR ANALYTICS API (NEW)
+export async function fetchHrUnitsSummary(day: string) {
+    const res = await api.get("/hr/units/summary", {
+        params: { day }
+    });
+    return res.data;
+}
+
 
 export { axios };

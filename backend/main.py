@@ -29,14 +29,15 @@ from backend.core.middleware.strict_path import StrictPathAllowlistMiddleware
 from backend.interfaces.users_api import user_router
 from backend.interfaces.api import org_router
 from backend.interfaces.turniked import turniked_router
+from backend.interfaces.hr_api import hr_router
 
 settings = get_settings()
 
 app = FastAPI(
     title=settings.APP_NAME,
     debug=bool(settings.DEBUG and settings.APP_ENV != "production"),
-    docs_url=None if settings.APP_ENV == "production" else "/docs",
-    redoc_url=None if settings.APP_ENV == "production" else "/redoc",
+    # docs_url=None if settings.APP_ENV == "production" else "/docs",
+    # redoc_url=None if settings.APP_ENV == "production" else "/redoc",
 )
 
 # =========================================================
@@ -49,6 +50,7 @@ app.add_middleware(
                   or [
                       "https://davomat.uznpu.uz",
                       "https://api.davomat.uznpu.uz",
+                      "http://localhost:8000/docs"
                   ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -64,17 +66,17 @@ app.add_middleware(
 # =========================================================
 # 🛡 1. ACTIVE RECON AND STICK BLOCKING (NEW, SENIOR LEVEL)
 # =========================================================
-app.add_middleware(StrictPathAllowlistMiddleware)
+# app.add_middleware(StrictPathAllowlistMiddleware)
 # app.add_middleware(HttpMethodGuardMiddleware)
 # app.add_middleware(HeaderSanityMiddleware)
 # app.add_middleware(BehaviorGuardMiddleware)
 # app.add_middleware(PayloadEntropyMiddleware)
-app.add_middleware(ReconBlockMiddleware)
+# app.add_middleware(ReconBlockMiddleware)
 
 # =========================================================
 # 🛡 2. Security Headers
 # =========================================================
-app.add_middleware(SecurityHeadersMiddleware)
+# app.add_middleware(SecurityHeadersMiddleware)
 
 # =========================================================
 # 🌍 3. Trusted Hosts (DNS rebinding protection)
@@ -179,3 +181,4 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(user_router)
 app.include_router(org_router)
 app.include_router(turniked_router)
+app.include_router(hr_router)
