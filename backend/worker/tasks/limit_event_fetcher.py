@@ -11,6 +11,7 @@ class EventFetcher:
         self.password = password
         self.batch_size = batch_size
         self.counter = 0
+        self.last_error = False
 
     def _post(self, payload):
         url = f"http://{self.ip}/ISAPI/AccessControl/AcsEvent?format=json"
@@ -36,9 +37,12 @@ class EventFetcher:
         }
         try:
             data = self._post(payload)
+            self.last_error = False
+            # print(int(data.get("AcsEvent", {}).get("totalMatches", 0)), "123132132132132111111111", self.ip)
             return int(data.get("AcsEvent", {}).get("totalMatches", 0))
         except Exception as e:
             print(f"❌ Xatolik get_total_events: {e}")
+            self.last_error = True
             return 0
 
     def fetch_by_position(self, position, limit):
@@ -88,29 +92,27 @@ class EventFetcher:
             actual_limit = min(self.batch_size, end_index - current)
             events = self.fetch_by_position(current, actual_limit)
 
+            # Agar umuman event kelmasa, demak oxiriga yetdik
             if not events:
                 print(f"⛔ No more events returned at position {current}")
                 break
 
-            # 🧠 Har bir `events` listini generator sifatida tashqariga uzatamiz
+            # 🧠 1. Eventlarni ro'yxat (batch) ko'rinishida uzatamiz
             yield events
 
-            if len(events) < actual_limit and (current + len(events)) < end_index:
-                remaining = end_index - (current + len(events))
-                print(f"⚠️ Only {len(events)} events returned. Retrying remaining {remaining} events...")
-                time.sleep(1)
-                extra_events = self.fetch_by_position(current + len(events), remaining)
-                for evt in extra_events:
-                    if "time" in evt:
-                        self.print_event(evt)
-                        yield extra_events
-                # if extra_events:
-                #     self.print_event(extra_events)
-                #     yield extra_events  # ✅ Qo‘shimcha eventlar ham uzatiladi
-                current += len(events) + len(extra_events)
-            else:
-                current += actual_limit
+            # 🧠 2. Pointerni faqat QABUL QILINGAN eventlar soniga qarab suramiz
+            fetched_count = len(events)
+            current += fetched_count
 
-            time.sleep(0.5)
+            # 🧠 3. Asosiy Optimizatsiya:
+            # Agar biz 30 ta so'rasak-u, turniket 5 ta bersa, demak hozircha bazasida
+            # faqat 5 ta yangi event bor. Uni qiynab qolgan 25 tasini so'ramaymiz!
+            # Tsiklni to'xtatamiz. Qolganini Producer'ning asosiy (realtime) tsikli hal qiladi.
+            if fetched_count < actual_limit:
+                print(f"⚠️ Reached end of available events (got {fetched_count}, asked {actual_limit}). Yielding to main loop.")
+                break
+
+            # Turniketga "nafas olishi" uchun kichik pauza (0.5 s o'rniga 0.2 s ham yetarli bo'ladi)
+            time.sleep(0.2)
 
         print("✅ Done.")

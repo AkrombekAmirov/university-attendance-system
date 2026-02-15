@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Optional, List, Dict
 from calendar import monthrange
 from sqlmodel import select
@@ -19,6 +19,14 @@ WORK_END = time(18, 0, 0)
 LUNCH_START = time(13, 0, 0)
 LUNCH_END = time(14, 0, 0)
 
+from enum import Enum
+
+
+class DeviceSyncStatus(str, Enum):
+    syncing = "syncing"
+    online = "online"
+    offline = "offline"
+
 
 class AttendanceEventRepository(BaseRepository[AttendanceEvent]):
     def __init__(self, db: Optional[DatabaseService] = None):
@@ -26,6 +34,68 @@ class AttendanceEventRepository(BaseRepository[AttendanceEvent]):
         self.org_repo = OrganizationRepository(db)
         self.users = UserRepository(db)
         self.device_repo = DeviceRepository(db)
+        self._user_cache = {}
+        self._device_cache = {}
+        self._org_cache = {}
+        self._cache_ttl = timedelta(hours=1)
+
+    def _get_from_cache(self, cache_dict, key):
+        item = cache_dict.get(key)
+        if not item:
+            return None
+
+        value, expires_at = item
+
+        if expires_at < datetime.utcnow():
+            cache_dict.pop(key, None)
+            return None
+
+        return value
+
+    def _set_cache(self, cache_dict, key, value):
+        cache_dict[key] = (
+            value,
+            datetime.utcnow() + self._cache_ttl
+        )
+
+    async def _get_user_cached(self, turniked_id):
+
+        cached_user = self._get_from_cache(self._user_cache, turniked_id)
+        if cached_user:
+            return cached_user
+
+        user = await self.users.get_by_user_turniked_id(turniked_id)
+
+        if user:
+            self._set_cache(self._user_cache, turniked_id, user)
+
+        return user
+
+    async def _get_device_cached(self, device_id):
+
+        cached_device = self._get_from_cache(self._device_cache, device_id)
+        if cached_device:
+            return cached_device
+
+        device = await self.device_repo.get_by_id(device_id)
+
+        if device:
+            self._set_cache(self._device_cache, device_id, device)
+
+        return device
+
+    async def _get_org_cached(self, user_id):
+
+        cached_org = self._get_from_cache(self._org_cache, user_id)
+        if cached_org:
+            return cached_org
+
+        org_unit_id = await self.org_repo.get_org_unit_by_user_id_(user_id)
+
+        if org_unit_id:
+            self._set_cache(self._org_cache, user_id, org_unit_id)
+
+        return org_unit_id
 
     async def process_event(self, event: dict, device_id: UUID):
         """
@@ -66,15 +136,15 @@ class AttendanceEventRepository(BaseRepository[AttendanceEvent]):
             # ─────────────────────────
             # 3️⃣ User va Device
             # ─────────────────────────
-            user = await self.users.get_by_user_turniked_id(employee_no)
+            user = await self._get_user_cached(employee_no)
             if not user:
                 return
 
-            device = await self.device_repo.get_by_id(device_id)
+            device = await self._get_device_cached(device_id)
             if not device:
                 return
 
-            org_unit_id = await self.org_repo.get_org_unit_by_user_id_(user.id)
+            org_unit_id = await self._get_org_cached(user.id)
 
             # ─────────────────────────
             # 4️⃣ RAW EVENT (audit)
@@ -487,6 +557,14 @@ class DeviceRepository(BaseRepository[Device]):
             "is_active": True,
             "is_deleted": False
         })
+
+    async def set_status(self, device_id: UUID, status: DeviceSyncStatus):
+        return await self.db.update_by_field(
+            Device,
+            "id",
+            device_id,
+            {"sync_status": status}
+        )
 
     async def update_sync_status(
             self,

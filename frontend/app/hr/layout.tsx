@@ -22,7 +22,7 @@ export default function HrLayout({ children }: Props) {
     function logout() {
         clearTokens();
         localStorage.removeItem("user");
-        router.push("/auth/login");
+        router.push("/");
     }
 
     return (

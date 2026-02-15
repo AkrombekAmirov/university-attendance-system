@@ -28,6 +28,7 @@ class StrictPathAllowlistMiddleware(BaseHTTPMiddleware):
         "/staff",
         "/turniked",
         "/users",
+        "/hr",
         "/health",
         "/favicon.ico",
     )

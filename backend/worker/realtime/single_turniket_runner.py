@@ -1,54 +1,84 @@
-# backend/worker/realtime/single_turniket_runner.py
-import json
-import time
 import requests
+import json
 from requests.auth import HTTPDigestAuth
 
 
-class EventFetcher:
-    def __init__(self, device, batch_size=1000):
-        self.device = device
-        self.batch_size = batch_size
+class TurniketLastSerialFetcher:
+    def __init__(self, ip: str, username: str, password: str):
+        self.ip = ip
+        self.auth = HTTPDigestAuth(username, password)
+        self.url = f"http://{ip}/ISAPI/AccessControl/AcsEvent?format=json"
 
-    def _post(self, payload):
-        url = f"http://{self.device.ip_address}/ISAPI/AccessControl/AcsEvent?format=json"
-        r = requests.post(
-            url,
-            auth=HTTPDigestAuth(self.device.username, self.device.password),
+    def _post(self, payload: dict) -> dict:
+        resp = requests.post(
+            self.url,
+            auth=self.auth,
             headers={"Content-Type": "application/json"},
             data=json.dumps(payload),
-            timeout=10
+            timeout=10,
         )
-        r.raise_for_status()
-        return r.json()
+        resp.raise_for_status()
+        return resp.json()
 
-    def get_total(self) -> int:
-        payload = {
+    def get_last_serial(self) -> int | None:
+        """
+        🔹 Turniketdagi eng oxirgi serialNo ni qaytaradi
+        🔹 Agar event bo‘lmasa → None
+        """
+
+        # 1️⃣ Jami eventlar sonini olish
+        total_payload = {
             "AcsEventCond": {
-                "searchID": "count",
+                "searchID": "total",
                 "searchResultPosition": 0,
                 "maxResults": 1,
                 "major": 5,
-                "minor": 0
+                "minor": 0,
             }
         }
-        data = self._post(payload)
-        return int(data["AcsEvent"]["totalMatches"])
 
-    def fetch_range(self, start, end):
-        for pos in range(start, end, self.batch_size):
-            payload = {
-                "AcsEventCond": {
-                    "searchID": "resume",
-                    "searchResultPosition": pos,
-                    "maxResults": self.batch_size,
-                    "major": 5,
-                    "minor": 0
-                }
+        data = self._post(total_payload)
+        total = int(data.get("AcsEvent", {}).get("totalMatches", 0))
+
+        if total <= 0:
+            print("⚠️ Turniketda eventlar yo‘q")
+            return None
+
+        # 2️⃣ Oxirgi eventni olish (total - 1)
+        last_payload = {
+            "AcsEventCond": {
+                "searchID": "last",
+                "searchResultPosition": total - 1,
+                "maxResults": 1,
+                "major": 5,
+                "minor": 0,
             }
-            data = self._post(payload)
-            for event in data.get("AcsEvent", {}).get("InfoList", []):
-                yield event
+        }
 
-            # 🔐 Hikvision himoyasi (majburiy)
-            time.sleep(0.3)
+        data = self._post(last_payload)
+        events = data.get("AcsEvent", {}).get("InfoList", [])
+
+        if not events:
+            print("⚠️ Oxirgi event olinmadi")
+            return None
+
+        last_event = events[0]
+        serial = last_event.get("serialNo")
+
+        print(
+            f"✅ ENG OXIRGI EVENT:\n"
+            f"   🕒 time   = {last_event.get('time')}\n"
+            f"   👤 user   = {last_event.get('employeeNoString')}\n"
+            f"   🔢 serial = {serial}"
+        )
+
+        return int(serial) if serial is not None else None
+if __name__ == "__main__":
+    fetcher = TurniketLastSerialFetcher(
+        ip="192.128.1.108",
+        username="admin",
+        password="abcd2024",
+    )
+
+    last_serial = fetcher.get_last_serial()
+    print("📌 LAST SERIAL =", last_serial)

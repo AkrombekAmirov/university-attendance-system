@@ -72,10 +72,37 @@ class AppSettings(BaseSettings):
     REDIS_HOST: str = Field(default="localhost")
     REDIS_PORT: int = Field(default=6379)
     REDIS_DB: int = Field(default=0)
+    # =======================
+    # 🚦 Redis Streams (Turniket Engine)
+    # =======================
+
+    REDIS_STREAMS_DB: int = Field(default=1)
+
+    REDIS_STREAM_RT: str = Field(default="turniket:rt")
+    REDIS_STREAM_HIST: str = Field(default="turniket:hist")
+    REDIS_STREAM_DLQ: str = Field(default="turniket:dlq")
+
+    REDIS_GROUP_RT: str = Field(default="cg-rt")
+    REDIS_GROUP_HIST: str = Field(default="cg-hist")
+
+    REDIS_DEDUP_KEY: str = Field(default="turniket:dedup")
+    REDIS_DEDUP_TTL: int = Field(default=86400)  # 1 kun
+
+    REDIS_STREAM_NUM_WORKERS: int = Field(default=15)
+    REDIS_STREAM_BATCH_SIZE: int = Field(default=300)
+    REDIS_STREAM_BLOCK_MS: int = Field(default=2000)
+    REDIS_STREAM_CLAIM_IDLE_MS: int = Field(default=60_000)
 
     @property
     def REDIS_URL(self) -> str:
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+
+    @property
+    def REDIS_STREAMS_URL(self) -> str:
+        """
+        Redis Streams uchun alohida DB
+        """
+        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_STREAMS_DB}"
 
     # =======================
     # ⚙️ Celery (task queue)

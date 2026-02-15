@@ -375,6 +375,7 @@ export default function StaffUsersPage() {
                                     "
                                 >
                                 <tr>
+                                    <th className="p-3 text-center w-12">№</th>
                                     <th className="p-3 text-left">F.I.Sh</th>
                                     <th className="p-3 text-left">Lavozim</th>
                                     <th className="p-3 text-center">
@@ -405,7 +406,14 @@ export default function StaffUsersPage() {
                                                 transition hover:bg-indigo-100/60
                                             `}
                                     >
-                                        <td className="p-3">{item.full_name}</td>
+                                        <td className="p-3 text-center font-semibold text-gray-600">
+                                            {idx + 1}
+                                        </td>
+
+                                        <td className="p-3">
+                                            {item.full_name}
+                                        </td>
+
                                         <td className="p-3">{item.position}</td>
 
                                         <td

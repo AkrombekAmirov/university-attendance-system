@@ -645,6 +645,18 @@ outline-none transition-all text-sm
                                         <ChevronDown
                                             className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none"/>
                                     </div>
+                                    {/* DATE PICKER — SUMMARY UCHUN */}
+                                    {!selectedUnit && (
+                                        <div className="ml-auto flex items-center gap-2">
+                                            {/*<Calendar className="w-4 h-4 text-indigo-600"/>*/}
+                                            <input
+                                                type="date"
+                                                value={selectedDate}
+                                                onChange={(e) => setSelectedDate(e.target.value)}
+                                                className="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm font-medium shadow-sm focus:ring-2 focus:ring-indigo-300 outline-none"/>
+                                        </div>
+                                    )}
+
                                 </div>
                             </div>
                         </div>
@@ -810,6 +822,7 @@ shadow border
                             <table className="w-full text-sm">
                                 <thead className="bg-indigo-100 text-slate-700">
                                 <tr>
+                                    <th className="p-3 text-center w-12">№</th>
                                     <th className="p-3 text-left">F.I.Sh</th>
                                     <th className="p-3 text-left">Lavozim</th>
                                     <th className="p-3 text-center">Kirish</th>
@@ -833,7 +846,13 @@ shadow border
                                             ? "bg-white/80"
                                             : "bg-indigo-50/40"}
                                     >
-                                        <td className="p-3">{item.full_name}</td>
+                                        <td className="p-3 text-center font-semibold text-gray-600">
+                                            {idx + 1}
+                                        </td>
+
+                                        <td className="p-3">
+                                            {item.full_name}
+                                        </td>
                                         <td className="p-3">{item.position}</td>
                                         <td className={`p-3 text-center font-semibold ${statusColor(item)}`}>
                                             {item.first_entry

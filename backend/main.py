@@ -36,8 +36,8 @@ settings = get_settings()
 app = FastAPI(
     title=settings.APP_NAME,
     debug=bool(settings.DEBUG and settings.APP_ENV != "production"),
-    # docs_url=None if settings.APP_ENV == "production" else "/docs",
-    # redoc_url=None if settings.APP_ENV == "production" else "/redoc",
+    docs_url=None if settings.APP_ENV == "production" else "/docs",
+    redoc_url=None if settings.APP_ENV == "production" else "/redoc",
 )
 
 # =========================================================
@@ -50,7 +50,7 @@ app.add_middleware(
                   or [
                       "https://davomat.uznpu.uz",
                       "https://api.davomat.uznpu.uz",
-                      "http://localhost:8000/docs"
+                      # "http://localhost:8000/docs"
                   ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -66,17 +66,17 @@ app.add_middleware(
 # =========================================================
 # 🛡 1. ACTIVE RECON AND STICK BLOCKING (NEW, SENIOR LEVEL)
 # =========================================================
-# app.add_middleware(StrictPathAllowlistMiddleware)
+app.add_middleware(StrictPathAllowlistMiddleware)
 # app.add_middleware(HttpMethodGuardMiddleware)
 # app.add_middleware(HeaderSanityMiddleware)
 # app.add_middleware(BehaviorGuardMiddleware)
 # app.add_middleware(PayloadEntropyMiddleware)
-# app.add_middleware(ReconBlockMiddleware)
+app.add_middleware(ReconBlockMiddleware)
 
 # =========================================================
 # 🛡 2. Security Headers
 # =========================================================
-# app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 # =========================================================
 # 🌍 3. Trusted Hosts (DNS rebinding protection)
@@ -140,7 +140,13 @@ class SafeLoggingMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SafeLoggingMiddleware)
 
-
+@app.middleware("http")
+async def block_suspicious(request: Request, call_next):
+    q = str(request.url).lower()
+    blocked = ["base64", "wget", "curl", "/bin/sh", "$(", "nc "]
+    if any(x in q for x in blocked):
+        return JSONResponse(status_code=403, content={"detail": "Blocked"})
+    return await call_next(request)
 # =========================================================
 # 10️⃣ EXCEPTION HANDLING — NO INFORMATION LEAKAGE
 # =========================================================

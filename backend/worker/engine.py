@@ -29,9 +29,9 @@ class StaticDevice:
 # 🔐 STATIK TURNIKETLAR
 STATIC_DEVICES = [
     StaticDevice(
-        id="c84a7053-8eb5-4587-b1d8-aaf151c162b9",
-        name="Asosiy Orqa Turniked 3",
-        ip_address="192.128.1.223",
+        id="140780d8-63fa-4e79-878b-0fd02e583527",
+        name="Asosiy Turniket 4",
+        ip_address="192.128.1.214",
         username="admin",
         password="abcd2024",
     )
@@ -45,7 +45,7 @@ QUEUE_MAXSIZE = 10_000
 NUM_DB_WORKERS = 5
 
 # 🔑 STATIC DATE FOR ALL DEVICES
-HISTORY_START_DATE = datetime(2026, 2, 1)
+HISTORY_START_DATE = datetime(2026, 2, 11)
 
 DB_BATCH_SIZE = 50
 DB_BATCH_TIMEOUT = 0.2
@@ -113,7 +113,8 @@ async def update_device_checkpoint(service: TurnikedService, device_id: UUID, la
     serial = last_event.get("serialNo")
     evt_time = parse_event_time(last_event)
     if serial and evt_time:
-        await service.update_device_sync_status(device_id, serial, evt_time)
+        pass
+        # await service.update_device_sync_status(device_id, serial, evt_time)
 
 
 async def device_state_worker(service: TurnikedService):
@@ -121,11 +122,13 @@ async def device_state_worker(service: TurnikedService):
         device_id, state, last_event = await device_state_queue.get()
         try:
             if state == "online":
-                await service.device_repo.mark_online(device_id)
+                # await service.device_repo.mark_online(device_id)
                 if last_event:
-                    await update_device_checkpoint(service, device_id, last_event)
+                    pass
+                    # await update_device_checkpoint(service, device_id, last_event)
             else:
-                await service.device_repo.mark_offline(device_id)
+                pass
+                # await service.device_repo.mark_offline(device_id)
         finally:
             device_state_queue.task_done()
 
@@ -204,6 +207,7 @@ def device_thread(device):
                     continue
                 seen_serials.append(serial)
                 safe_push(evt)
+                print(evt)
 
         print(f"✅ HISTORY SYNC DONE [{device.name}]")
 

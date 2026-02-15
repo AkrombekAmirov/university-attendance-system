@@ -20,7 +20,7 @@ QUEUE_MAXSIZE = 10_000
 NUM_DB_WORKERS = 5
 
 # 🔑 STATIC DATE FOR ALL DEVICES
-HISTORY_START_DATE = datetime(2026, 2, 2, 0, 0, 0)
+HISTORY_START_DATE = datetime(2026, 2, 13, 0, 0, 0)
 
 DB_BATCH_SIZE = 50
 DB_BATCH_TIMEOUT = 0.2
@@ -113,11 +113,11 @@ async def update_device_checkpoint(
     if not serial or not evt_time:
         return
 
-    await service.update_device_sync_status(
-        device_id=device_id,
-        last_serial_no=serial,
-        last_event_time=evt_time,
-    )
+    # await service.update_device_sync_status(
+    #     device_id=device_id,
+    #     last_serial_no=serial,
+    #     last_event_time=evt_time,
+    # )
 
 
 # ─────────────────────────────
@@ -128,11 +128,14 @@ async def device_state_worker(service: TurnikedService):
         device_id, state, last_event = await device_state_queue.get()
         try:
             if state == "online":
-                await service.device_repo.mark_online(device_id)
+                pass
+                # await service.device_repo.mark_online(device_id)
                 if last_event:
-                    await update_device_checkpoint(service, device_id, last_event)
+                    pass
+                    # await update_device_checkpoint(service, device_id, last_event)
             elif state == "offline":
-                await service.device_repo.mark_offline(device_id)
+                pass
+                # await service.device_repo.mark_offline(device_id)
         finally:
             device_state_queue.task_done()
 

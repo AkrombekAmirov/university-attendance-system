@@ -181,6 +181,7 @@ def device_thread(device):
 
                 seen_serials.append(serial)
                 safe_push(evt)
+                print(evt)
 
         print(f"🔥 [{device.name}] REAL-TIME STARTED")
 
