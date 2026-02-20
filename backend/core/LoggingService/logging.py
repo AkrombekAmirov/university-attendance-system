@@ -31,75 +31,62 @@ def sanitize_record(record: dict) -> dict:
 def setup_logging():
     settings = get_settings()
 
-    # 🔹 Loguru default chiqishlarini tozalash
     logger.remove()
 
-    # 🔹 1. Konsol chiqish (dev mode uchun rangli)
+    # ===============================
+    # 1️⃣ STDOUT (production uchun asosiy)
+    # ===============================
     logger.add(
         sys.stdout,
-        colorize=True,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-               "<level>{level: <8}</level> | "
-               "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
-               "<level>{message}</level>",
         level=settings.LOG_LEVEL,
-    )
-
-    # 🔹 2. Fayl chiqishi (rotation + retention)
-    log_path = settings.LOG_FILE_PATH
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    logger.add(
-        log_path,
-        level=settings.LOG_LEVEL,
-        rotation=settings.LOG_ROTATION,   # “10 MB”
-        retention=settings.LOG_RETENTION, # “10 days”
-        compression="zip",
-        encoding="utf-8",
-        serialize=False,  # False: dev, True: JSON log
-        enqueue=True,     # Thread-safe writing
+        enqueue=True,         # thread-safe
         backtrace=False,
         diagnose=False,
+        colorize=False,       # productionda rang kerak emas
+        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | "
+               "{level:<8} | "
+               "{name}:{function}:{line} - "
+               "{message}",
     )
 
-    # 🔹 Structlog sozlamasi
-    structlog.configure(
-        wrapper_class=structlog.make_filtering_bound_logger(
-            logging.getLevelName(settings.LOG_LEVEL)
-        ),
-        processors=[
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
-            structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,
-            structlog.processors.UnicodeDecoder(),
-            structlog.processors.JSONRenderer(indent=None, ensure_ascii=False),
-        ],
-    )
+    # ===============================
+    # 2️⃣ FILE LOG (faqat agar yoqilgan bo‘lsa)
+    # ===============================
+    if getattr(settings, "ENABLE_FILE_LOG", False):
 
-    # 🔹 Root loggingni Loguru bilan integratsiya qilish
-    class InterceptHandler(logging.Handler):
-        def emit(self, record):
-            # Root logging uchun loguru ga uzatish
-            try:
-                level = logger.level(record.levelname).name
-            except Exception:
-                level = record.levelno
-            frame, depth = logging.currentframe(), 2
-            while frame.f_code.co_filename == logging.__file__:
-                frame = frame.f_back
-                depth += 1
-            logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+        log_path = settings.LOG_FILE_PATH
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
 
-    logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
-    logging.getLogger("uvicorn.access").handlers = [InterceptHandler()]
-    logging.getLogger("uvicorn.error").handlers = [InterceptHandler()]
+        logger.add(
+            log_path,
+            level=settings.LOG_LEVEL,
+            rotation=settings.LOG_ROTATION,
+            retention=settings.LOG_RETENTION,
+            compression="zip",
+            encoding="utf-8",
+            serialize=False,
+            enqueue=True,
+            backtrace=False,
+            diagnose=False,
+            delay=True,  # 🔑 file handle faqat kerak bo‘lganda ochiladi
+        )
 
-    # 🔹 Log test chiqishi
+    # ===============================
+    # 3️⃣ Uvicorn access logni o‘chirish (performance)
+    # ===============================
+    logging.getLogger("uvicorn.access").propagate = False
+    logging.getLogger("uvicorn.error").propagate = False
+
+    # ===============================
+    # 4️⃣ Requests debug loglarni o‘chirish
+    # ===============================
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("requests").setLevel(logging.WARNING)
+
     logger.info("✅ Logging initialized.")
-    logger.debug(f"Logging level: {settings.LOG_LEVEL}")
-    logger.debug(f"Log file: {settings.LOG_FILE_PATH}")
 
     return logger
+
 
 
 # ===============================

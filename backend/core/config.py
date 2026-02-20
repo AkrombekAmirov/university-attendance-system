@@ -145,6 +145,7 @@ class AppSettings(BaseSettings):
     LOG_FILE_PATH: str = Field(default="logs/app.log")
     LOG_ROTATION: str = Field(default="10 MB")
     LOG_RETENTION: str = Field(default="10 days")
+    # ENABLE_FILE_LOG = false
 
     # =======================
     # 🧩 Validatorlar
