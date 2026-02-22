@@ -3,7 +3,7 @@
 import {useQuery, useMutation, useQueryClient} from "@tanstack/react-query";
 import {api} from "@/lib/api";
 import {toast} from "sonner";
-import {User} from "@/app/admin_manage/users/page";
+import {User} from "@/types/user";
 
 interface UsersResponse {
     data: User[];

@@ -4,8 +4,8 @@ from database_file_path import get_file_path
 
 def restore_postgres(backup_file):
     command = [
-        'docker', 'exec', '-i', 'turniked_db',
-        'psql', '-U', 'turniked_user', '-d', 'turniked_db'
+        'docker', 'exec', '-i', 'university_db',
+        'psql', '-U', 'turnikeuser', '-d', 'turnikedb'
     ]
     with open(backup_file, 'r') as f:
         try:
@@ -15,4 +15,4 @@ def restore_postgres(backup_file):
 
 
 if __name__ == "__main__":
-    restore_postgres(get_file_path('Database_2025-09-10_11-00-38.sql'))
+    restore_postgres(get_file_path('Database_2026-02-21_14-37-12.sql'))

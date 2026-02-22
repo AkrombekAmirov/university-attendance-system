@@ -50,7 +50,8 @@ app.add_middleware(
                   or [
                       "https://davomat.uznpu.uz",
                       "https://api.davomat.uznpu.uz",
-                      # "http://localhost:8000/docs"
+                      "http://localhost:8000/docs",
+                      "http://localhost:3000/docs"
                   ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -140,6 +141,7 @@ class SafeLoggingMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SafeLoggingMiddleware)
 
+
 @app.middleware("http")
 async def block_suspicious(request: Request, call_next):
     q = str(request.url).lower()
@@ -147,6 +149,8 @@ async def block_suspicious(request: Request, call_next):
     if any(x in q for x in blocked):
         return JSONResponse(status_code=403, content={"detail": "Blocked"})
     return await call_next(request)
+
+
 # =========================================================
 # 10️⃣ EXCEPTION HANDLING — NO INFORMATION LEAKAGE
 # =========================================================

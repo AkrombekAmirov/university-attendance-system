@@ -75,7 +75,8 @@ services:
       - "5436:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d:ro
+      # Rootdan backend ichidagi db/init ga murojaat
+      - ./backend/db/init:/docker-entrypoint-initdb.d:ro
       - pgbackups:/backups:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-turnikeuser} -d ${POSTGRES_DB:-turnikedb} || exit 1"]
@@ -122,13 +123,17 @@ services:
   # 🚀 Backend API (FastAPI)
   api:
     build:
-      context: ..
-      dockerfile: backend/Dockerfile
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: university_api
     restart: unless-stopped
     environment:
       <<: *common-env
-    command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+    # Alembic migratsiyasini ishga tushirish va keyin API ni yoqish
+    # PATH muammosini oldini olish uchun python -m dan foydalanamiz
+    command: >
+      sh -c "cd backend && python -m alembic upgrade head &&
+             python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'"
     ports:
       - "8000:8000"
     depends_on:
@@ -142,8 +147,8 @@ services:
   # 👷 Worker (Turniket Events Listener)
   worker:
     build:
-      context: ..
-      dockerfile: backend/Dockerfile
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: university_worker
     restart: unless-stopped
     environment:
@@ -161,11 +166,12 @@ services:
   # 🌐 Frontend (Next.js)
   frontend:
     build:
-      context: ../frontend
+      context: ./frontend
       dockerfile: Dockerfile
     container_name: university_frontend
     restart: unless-stopped
     environment:
+      # Browserdan API ga murojaat qilish uchun (public URL)
       NEXT_PUBLIC_API_URL: "http://localhost:8000"
     ports:
       - "3000:3000"

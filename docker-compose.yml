@@ -129,8 +129,9 @@ services:
     restart: unless-stopped
     environment:
       <<: *common-env
-    # Backend ichida turib run qilinadi, shuning uchun pathlar to'g'ri keladi
-    command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+    # Alembic olib tashlandi, faqat uvicorn ishga tushadi
+    command: >
+      sh -c "cd backend && python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'"
     ports:
       - "8000:8000"
     depends_on:

@@ -6,14 +6,32 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
+// Type e'lon qilamiz
+interface OrganizationType {
+    id: string;
+    name: string;
+    code: string;
+}
+
 export default function OrganizationPage() {
-    const [organizations, setOrganizations] = useState([]);
+    // State to'g'ri tip bilan
+    const [organizations, setOrganizations] = useState<OrganizationType[]>([]);
     const [name, setName] = useState("");
     const [code, setCode] = useState("");
     const [loading, setLoading] = useState(false);
 
+    // Tashkilotlarni yuklash funksiyasi
+    const loadOrganizations = async () => {
+        try {
+            const data = await fetchOrganizations();
+            setOrganizations(data);
+        } catch (error) {
+            console.error("Failed to fetch organizations", error);
+        }
+    };
+
     useEffect(() => {
-        fetchOrganizations().then(setOrganizations);
+        loadOrganizations();
     }, []);
 
     const handleSubmit = async () => {
@@ -23,8 +41,11 @@ export default function OrganizationPage() {
 
         try {
             setLoading(true);
-            const org = await createOrganization(formData);
-            const [organizations, setOrganizations] = useState<OrganizationType[]>([]);
+            await createOrganization(formData);
+
+            // Muvaffaqiyatli yaratilgandan so'ng ro'yxatni yangilaymiz
+            await loadOrganizations();
+
             setName("");
             setCode("");
         } catch (err: unknown) {
@@ -58,7 +79,7 @@ export default function OrganizationPage() {
 
             <h3 className="font-semibold mt-10">Mavjud tashkilotlar:</h3>
             <ul className="space-y-2 list-disc pl-6">
-                {organizations.map((org: any) => (
+                {organizations.map((org) => (
                     <li key={org.id}>
                         <strong>{org.name}</strong> – {org.code}
                     </li>

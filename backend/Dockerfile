@@ -42,4 +42,5 @@ ENV PYTHONPATH=/app
 EXPOSE 8000
 
 # Default command (buni docker-compose da override qilish mumkin)
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# python -m uvicorn ishlatamiz, PATH muammosini oldini olish uchun
+CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

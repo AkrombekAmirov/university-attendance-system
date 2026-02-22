@@ -2,6 +2,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+    output: "standalone",
     allowedDevOrigins: [
         "davomat.uznpu.uz",
         "api.davomat.uznpu.uz",
