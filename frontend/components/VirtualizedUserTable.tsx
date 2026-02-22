@@ -1,11 +1,13 @@
 "use client";
 
 import {useCallback, useMemo} from "react";
+// @ts-ignore
 import {FixedSizeList as List} from "react-window";
+// @ts-ignore
 import AutoSizer from "react-virtualized-auto-sizer";
 import {Button} from "@/components/ui/button";
 import {Plus, X, Pencil, Link2} from "lucide-react";
-import {User} from "@/app/admin_manage/users/page";
+import {User} from "@/types/user";
 
 interface VirtualizedUserTableProps {
     users: User[];
@@ -116,7 +118,7 @@ export function VirtualizedUserTable({
             {/* Virtualized List */}
             <div style={{height: `calc(100% - ${HEADER_HEIGHT}px)`}}>
                 <AutoSizer>
-                    {({height, width}) => (
+                    {({height, width}: {height: number, width: number}) => (
                         <List
                             height={height}
                             width={width}

@@ -2,7 +2,7 @@
 
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timedelta  # 🟢 QO'SHILDI: timedelta
 from backend.worker.redis_streams.config import *
 
 
@@ -64,6 +64,10 @@ class TurniketProducer:
         dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         return dt.replace(tzinfo=None)
 
+    # 🟢 QO'SHILDI: Bugungi sanadan 30 kun oldingi vaqtni beradi
+    def _get_one_month_ago(self) -> datetime:
+        return self._day_start(datetime.now() - timedelta(days=30))
+
     # ================= BINARY SEARCH (RECOVERY ONLY) ================= #
 
     def _find_start_serial_by_date(self, start_date: datetime, total: int) -> int:
@@ -115,8 +119,16 @@ class TurniketProducer:
 
         self._set_status("syncing")
 
+        one_month_ago = self._get_one_month_ago()  # 🟢 QO'SHILDI
+
         if self.last_event_time:
             start_date = self._day_start(self.last_event_time)
+
+            # 🟢 QO'SHILDI: DB dagi vaqt 1 oydan eski bo'lsa, qidiruvni 1 oylik limitga tushiramiz
+            if start_date < one_month_ago:
+                print(f"⚠️ [{self.device.name}] DB vaqti juda eski ({start_date}). 1 oylik qidiruvga o'tkazildi.")
+                start_date = one_month_ago
+
             start = self._find_start_serial_by_date(start_date, total)
         else:
             start = max(0, total - HISTORY_LIMIT)
@@ -127,12 +139,17 @@ class TurniketProducer:
             return True
 
         for batch in self.fetcher.paged_fetch_event_range(
-            start, total, self.device.name
+                start, total, self.device.name
         ):
             for evt in batch:
+                evt_time = self._parse_time(evt)
+
+                # 🟢 QO'SHILDI: Turniket kutilmaganda "1 yil oldingi" xato sanali event bersa, o'tkazmaymiz
+                if evt_time and evt_time < one_month_ago:
+                    continue
+
                 self._push(evt)
                 print(f"[{self.device.name}] Pushed offline event: {evt}")
-                evt_time = self._parse_time(evt)
                 if evt_time:
                     self.last_event_time = evt_time
 
@@ -150,6 +167,7 @@ class TurniketProducer:
         while True:
 
             total = self.fetcher.get_total_events()
+            one_month_ago = self._get_one_month_ago()  # 🟢 QO'SHILDI
 
             if self.fetcher.last_error:
                 self._set_status("offline")
@@ -159,12 +177,17 @@ class TurniketProducer:
             if total > self.last_position:
 
                 for batch in self.fetcher.paged_fetch_event_range(
-                    self.last_position, total, self.device.name
+                        self.last_position, total, self.device.name
                 ):
                     for evt in batch:
+                        evt_time = self._parse_time(evt)
+
+                        # 🟢 QO'SHILDI: Jonli rejimda ham xato sanali event chiqib qolsa ushlab qolamiz
+                        if evt_time and evt_time < one_month_ago:
+                            continue
+
                         self._push(evt)
                         print(f"[{self.device.name}] Pushed realtime event: {evt}")
-                        evt_time = self._parse_time(evt)
                         if evt_time:
                             self.last_event_time = evt_time
 

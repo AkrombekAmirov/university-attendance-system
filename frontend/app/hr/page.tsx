@@ -58,6 +58,7 @@ type HrUnit = {
     presentCount?: number;
     absentCount?: number;
     lateCount?: number;
+    department?: string;
 };
 /* ================= LOADING TIPS ================= */
 const loadingTips = [
