@@ -1,0 +1,10 @@
+User-agent: *
+Disallow: /api/
+Disallow: /admin_manage/
+Disallow: /hr/
+Disallow: /staff/
+Disallow: /_next/
+Allow: /
+
+# Sitemap (agar bo'lsa)
+# Sitemap: https://davomat.uznpu.uz/sitemap.xml

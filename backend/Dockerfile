@@ -1,46 +1,54 @@
-# ---------------------------------------------------------------
-# 1. BUILD STAGE
-# ---------------------------------------------------------------
-FROM python:3.11-slim as builder
+# ==========================================
+# 1-BOSQICH: YIG'UVCHI (Builder)
+# ==========================================
+FROM python:3.11-slim AS builder
+
+# Tizim paketlarini yangilash va kerakli kutubxonalarni o'rnatish
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Tizim kutubxonalari (PostgreSQL driver va kompilyatorlar uchun)
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libpq-dev \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
-# Python paketlarini o‘rnatish
+# Kutubxonalar ro'yxatini ko'chirish va o'rnatish
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels -r requirements.txt
 
-# ---------------------------------------------------------------
-# 2. RUNTIME STAGE
-# ---------------------------------------------------------------
+
+# ==========================================
+# 2-BOSQICH: JANGAVAR HOLAT (Runner)
+# ==========================================
 FROM python:3.11-slim
 
-WORKDIR /app
+# Xavfsiz, huquqlari cheklangan foydalanuvchi yaratish
+RUN groupadd -g 1001 appuser && useradd -u 1001 -g appuser -s /sbin/nologin appuser
 
-# Kerakli kutubxonalar (libpq faqat runtime uchun)
-RUN apt-get update && apt-get install -y \
-    libpq5 \
-    curl \
+# Zombi-protsesslarni tozalash uchun 'tini' o'rnatamiz
+RUN apt-get update && apt-get install -y --no-install-recommends tini libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
-# Builder bosqichidan tayyor paketlarni ko‘chirib o‘tamiz
-COPY --from=builder /install /usr/local
+WORKDIR /app
 
-# Loyiha kodini ko‘chiramiz
-COPY . /app/backend
+# Builder'dan tayyor kutubxonalarni olib kelish va o'rnatish
+COPY --from=builder /app/wheels /wheels
+COPY --from=builder /app/requirements.txt .
+RUN pip install --no-cache /wheels/*
 
-# PYTHONPATH ni to‘g‘rilash (backend papkasi ichida turib, rootni ko‘rish uchun)
-ENV PYTHONPATH=/app
+# Kodlarni ko'chirish va egalikni o'zgartirish
+COPY . .
+RUN chown -R appuser:appuser /app
 
-# Portni ochish
+# 💥 SCORCHED EARTH (YONDIRILGAN YER) QOIDASI 💥
+# Xaker kodni yorib kirsa ham, terminal (shell) yoki virus tortish asboblari bo'lmaydi
+RUN rm -f /bin/sh /bin/bash /usr/bin/wget /usr/bin/curl /usr/bin/nc /bin/dash || true
+
+# Xavfsiz foydalanuvchiga o'tish (Root huquqidan chiqish)
+USER appuser
+
+# API uchun port
 EXPOSE 8000
 
-# Default command (buni docker-compose da override qilish mumkin)
-# python -m uvicorn ishlatamiz, PATH muammosini oldini olish uchun
-CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Standart buyruq (API uchun). Worker uchun docker-compose o'zgartiradi
+ENTRYPOINT ["tini", "--"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

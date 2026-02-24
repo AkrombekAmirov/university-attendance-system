@@ -51,11 +51,11 @@ async def update_device_checkpoint(
     if dt.tzinfo:
         dt = dt.replace(tzinfo=None)
 
-    await service.update_device_sync_status(
-        device_id=device_id,
-        last_serial_no=serial,
-        last_event_time=dt,
-    )
+    # await service.update_device_sync_status(
+    #     device_id=device_id,
+    #     last_serial_no=serial,
+    #     last_event_time=dt,
+    # )
 
 # ─────────────────────────────
 # DEVICE STATE WORKER
@@ -64,13 +64,14 @@ async def device_state_worker(service: TurnikedService):
     while True:
         device_id, state, last_event = await device_state_queue.get()
         try:
-            if state == "online":
-                await service.device_repo.mark_online(device_id)
-                if last_event:
-                    await update_device_checkpoint(service, device_id, last_event)
-
-            elif state == "offline":
-                await service.device_repo.mark_offline(device_id)
+            print("+")
+            # if state == "online":
+            #     await service.device_repo.mark_online(device_id)
+            #     if last_event:
+            #         await update_device_checkpoint(service, device_id, last_event)
+            #
+            # elif state == "offline":
+            #     await service.device_repo.mark_offline(device_id)
 
         except Exception as e:
             print("❌ Device state worker error:", e)
