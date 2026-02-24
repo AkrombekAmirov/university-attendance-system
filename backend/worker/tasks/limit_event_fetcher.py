@@ -31,7 +31,7 @@ class EventFetcher:
                 "searchID": "total",
                 "searchResultPosition": 0,
                 "maxResults": 1,
-                "major": 5,
+                "major": 0,
                 "minor": 0
             }
         }
@@ -51,7 +51,7 @@ class EventFetcher:
                 "searchID": "rangeFetch",
                 "searchResultPosition": position,
                 "maxResults": limit,
-                "major": 5,
+                "major": 0,
                 "minor": 0
             }
         }
@@ -113,6 +113,6 @@ class EventFetcher:
                 break
 
             # Turniketga "nafas olishi" uchun kichik pauza (0.5 s o'rniga 0.2 s ham yetarli bo'ladi)
-            time.sleep(0.2)
+            time.sleep(1.2)
 
         print("✅ Done.")

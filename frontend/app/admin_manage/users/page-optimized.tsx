@@ -344,7 +344,11 @@ function UserAssignmentModal({isOpen, onClose, user, onSuccess}: {
     const [positions, setPositions] = useState<Position[]>([]);
     const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+<<<<<<< HEAD
 
+=======
+    
+>>>>>>> bcc8fb49ad3a69160c569756b6e944ba3662a768
     // Generic tipni olib tashladik
     const form = useForm({resolver: zodResolver(assignmentSchema), defaultValues: {status: "ACTIVE"}});
 

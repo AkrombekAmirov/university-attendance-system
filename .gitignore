@@ -22,6 +22,9 @@ frontend/postcss.config.mjs
 frontend/tailwind.config.js
 frontend/eslint.config.mjs
 frontend/turbo.json
+backend/BackupService/Database_2026-02-20_13-09-33.sql
+backend/BackupService/Database_2026-02-21_14-37-12.sql
+
 
 # Personal
 *.env

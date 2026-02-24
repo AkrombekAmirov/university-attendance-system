@@ -161,7 +161,7 @@ services:
     networks: [backend]
     logging: *default-logging
 
-  # 🌐 Frontend (Next.js)
+  # 🌐 Frontend (Next.js) - IRON FORTRESS MODE
   frontend:
     build:
       context: ./frontend
@@ -177,3 +177,12 @@ services:
       - api
     networks: [backend]
     logging: *default-logging
+    # 🛡️ SECURITY HARDENING
+    read_only: true             # Fayl tizimiga yozishni taqiqlash
+    cap_drop:
+      - ALL                     # Barcha kernel ruxsatlarini olib tashlash
+    security_opt:
+      - no-new-privileges:true  # Ruxsatlarni oshirishni taqiqlash
+    tmpfs:                      # Vaqtincha fayllar uchun xotira
+      - /tmp
+      - /run
