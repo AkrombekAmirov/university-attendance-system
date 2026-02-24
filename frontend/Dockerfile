@@ -1,50 +1,48 @@
-# ---------------------------------------------------------------
-# 1. BUILD STAGE
-# ---------------------------------------------------------------
-FROM node:18-alpine AS builder
-
-# Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
+# ==========================================
+# 1-BOSQICH: KUTUBXONALARNI O'RNATISH (Deps)
+# ==========================================
+FROM node:18-alpine AS deps
 RUN apk add --no-cache libc6-compat
-
 WORKDIR /app
-
-# Paketlarni o‘rnatish
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 RUN npm ci
 
-# Loyiha kodini ko‘chirish
+# ==========================================
+# 2-BOSQICH: KODNI YIG'ISH (Builder)
+# ==========================================
+FROM node:18-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-
-# Next.js build qilish
-# Standalone output kerak (next.config.ts da yoqilgan bo'lishi shart)
-ENV NEXT_TELEMETRY_DISABLED=1
+# Next.js ilovasini "standalone" rejimida qurish
 RUN npm run build
 
-# ---------------------------------------------------------------
-# 2. RUNTIME STAGE (Distroless - No Shell, No Root)
-# ---------------------------------------------------------------
-# Google Distroless imidji: Shell, Package Manager, va boshqa keraksiz narsalar yo'q.
-# Faqat Node.js runtime bor.
-FROM gcr.io/distroless/nodejs18-debian12 AS runner
-
+# ==========================================
+# 3-BOSQICH: JANGAVAR HOLAT (Runner)
+# ==========================================
+FROM node:18-alpine AS runner
 WORKDIR /app
 
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV production
 
-# Root bo'lmagan foydalanuvchi yaratish shart emas, Distroless da 'nonroot' bor (uid 65532)
-# Lekin fayllarni to'g'ri ko'chirish kerak.
+# Xavfsiz foydalanuvchi yaratish
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
 
-# Kerakli fayllarni builder dan ko'chiramiz
-COPY --from=builder --chown=nonroot:nonroot /app/public ./public
-COPY --from=builder --chown=nonroot:nonroot /app/.next/standalone ./
-COPY --from=builder --chown=nonroot:nonroot /app/.next/static ./.next/static
+# Faqat ishlashi uchun kerakli bo'lgan yig'ilgan fayllarni ko'chirish
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Non-root userga o'tish
-USER nonroot:nonroot
+# 💥 SCORCHED EARTH (YONDIRILGAN YER) QOIDASI 💥
+# Alpine OS dagi barcha shell va tarmoq utilitalarini yo'q qilish
+RUN rm -f /bin/sh /bin/ash /usr/bin/wget /usr/bin/curl /usr/bin/nc || true
 
-# Port
+# Xavfsiz foydalanuvchiga o'tish
+USER nextjs
+
 EXPOSE 3000
+ENV PORT 3000
 
-# Serverni ishga tushirish
-CMD ["server.js"]
+# Standalone rejimida ishlash
+CMD ["node", "server.js"]
