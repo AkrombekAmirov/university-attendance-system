@@ -7,6 +7,8 @@ export type MeResponse = {
     is_superadmin: boolean;
     roles: string[];
     redirect_path: string;
+    full_name?: string;
+    email?: string;
 };
 
 export async function fetchMe(): Promise<MeResponse | null> {

@@ -14,3 +14,7 @@ sqlmodel==0.0.34
 starlette==0.52.1
 structlog==25.5.0
 tenacity==9.0.0
+email-validator==2.1.0.post1
+alembic==1.14.0
+uvicorn[standard]==0.32.0
+gunicorn==21.2.0

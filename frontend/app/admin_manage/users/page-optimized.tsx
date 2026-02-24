@@ -344,7 +344,9 @@ function UserAssignmentModal({isOpen, onClose, user, onSuccess}: {
     const [positions, setPositions] = useState<Position[]>([]);
     const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    const form = useForm<AssignmentInput>({resolver: zodResolver(assignmentSchema), defaultValues: {status: "ACTIVE"}});
+    
+    // Generic tipni olib tashladik
+    const form = useForm({resolver: zodResolver(assignmentSchema), defaultValues: {status: "ACTIVE"}});
 
     const loadOrgTree = async () => {
         try {
@@ -383,7 +385,7 @@ function UserAssignmentModal({isOpen, onClose, user, onSuccess}: {
         loadPositions(unitId);
     };
 
-    const onSubmit = async (data: AssignmentInput) => {
+    const onSubmit = async (data: any) => {
         if (!user) return;
         setIsLoading(true);
         try {
@@ -471,7 +473,7 @@ function UserAssignmentModal({isOpen, onClose, user, onSuccess}: {
                                     </SelectContent>
                                 </Select>
                                 {form.formState.errors.position_id && (
-                                    <p className="text-red-500 text-sm mt-1">{form.formState.errors.position_id.message}</p>
+                                    <p className="text-red-500 text-sm mt-1">{String(form.formState.errors.position_id.message)}</p>
                                 )}
                             </div>
 

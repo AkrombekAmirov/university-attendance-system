@@ -53,9 +53,6 @@ class TurniketProducer:
 
     # ================= UTILS ================= #
 
-    def _day_start(self, dt: datetime) -> datetime:
-        return dt.replace(hour=0, minute=0, second=0, microsecond=0)
-
     def _parse_time(self, evt: dict) -> datetime | None:
         raw = evt.get("time")
         if not raw:
@@ -116,8 +113,7 @@ class TurniketProducer:
         self._set_status("syncing")
 
         if self.last_event_time:
-            start_date = self._day_start(self.last_event_time)
-            start = self._find_start_serial_by_date(start_date, total)
+            start = self._find_start_serial_by_date(self.last_event_time, total)
         else:
             start = max(0, total - HISTORY_LIMIT)
 
@@ -130,9 +126,12 @@ class TurniketProducer:
             start, total, self.device.name
         ):
             for evt in batch:
+                evt_time = self._parse_time(evt)
+                if self.last_event_time and evt_time and evt_time <= self.last_event_time:
+                    continue
+
                 self._push(evt)
                 print(f"[{self.device.name}] Pushed offline event: {evt}")
-                evt_time = self._parse_time(evt)
                 if evt_time:
                     self.last_event_time = evt_time
 
@@ -162,9 +161,12 @@ class TurniketProducer:
                     self.last_position, total, self.device.name
                 ):
                     for evt in batch:
+                        evt_time = self._parse_time(evt)
+                        if self.last_event_time and evt_time and evt_time <= self.last_event_time:
+                            continue
+
                         self._push(evt)
                         print(f"[{self.device.name}] Pushed realtime event: {evt}")
-                        evt_time = self._parse_time(evt)
                         if evt_time:
                             self.last_event_time = evt_time
 

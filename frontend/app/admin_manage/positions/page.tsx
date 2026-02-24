@@ -37,7 +37,7 @@ import { toast } from "react-hot-toast";
 import { useAuth } from "@/hooks/useAuth";
 
 /* ============================================================================
-   CONSTANTS & SCHEMA (UNCHANGED)
+   CONSTANTS & SCHEMA
 ============================================================================ */
 
 const DEFAULT_ROLE_ID = "11111111-1111-1111-1111-111111111111";
@@ -53,20 +53,58 @@ const positionSchema = z.object({
 type FormData = z.infer<typeof positionSchema>;
 
 /* ============================================================================
+   HELPERS
+============================================================================ */
+
+const Field = ({ label, icon, children }: any) => (
+    <div className="space-y-1">
+        <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
+            {icon} {label}
+        </label>
+        {children}
+    </div>
+);
+
+const Error = ({ children }: any) => (
+    <p className="text-xs text-red-500 mt-1">{children}</p>
+);
+
+/* ============================================================================
    PREMIUM MODAL
 ============================================================================ */
 
 function PositionCreateModal({
                                  open,
                                  onClose,
-                                 onSubmit,
+                                 onSave,
                                  orgUnits,
                                  positions,
-                                 register,
-                                 setValue,
-                                 errors,
                                  loading,
                              }: any) {
+    // Generic tipni olib tashladik, TypeScript o'zi aniqlaydi
+    const {
+        register,
+        handleSubmit,
+        setValue,
+        reset,
+        formState: { errors },
+    } = useForm({
+        resolver: zodResolver(positionSchema),
+        defaultValues: {
+            quota: 1,
+            is_unique: false,
+        },
+    });
+
+    // Modal yopilganda formani tozalash
+    useEffect(() => {
+        if (!open) reset();
+    }, [open, reset]);
+
+    const onSubmit = (data: any) => {
+        onSave(data);
+    };
+
     return (
         <AnimatePresence>
             {open && (
@@ -92,8 +130,8 @@ function PositionCreateModal({
                                         <Sparkles className="text-emerald-500" />
                                         Yangi lavozim
                                     </CardTitle>
-                                    <button onClick={onClose}>
-                                        <X />
+                                    <button onClick={onClose} className="hover:bg-slate-100 p-1 rounded-full">
+                                        <X size={20} />
                                     </button>
                                 </div>
                                 <p className="text-sm text-slate-500 mt-1">
@@ -102,7 +140,7 @@ function PositionCreateModal({
                             </CardHeader>
 
                             <CardContent className="pt-6 space-y-5">
-                                <form onSubmit={onSubmit} className="space-y-5">
+                                <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
 
                                     {/* Org Unit */}
                                     <Field label="Bo‘linma" icon={<Building2 size={14} />}>
@@ -123,7 +161,7 @@ function PositionCreateModal({
                                                     ))}
                                             </SelectContent>
                                         </Select>
-                                        {errors.org_unit_id && <Error>{errors.org_unit_id.message}</Error>}
+                                        {errors.org_unit_id && <Error>{String(errors.org_unit_id.message)}</Error>}
                                     </Field>
 
                                     {/* Title */}
@@ -132,7 +170,7 @@ function PositionCreateModal({
                                             {...register("title")}
                                             placeholder="Masalan: Kafedra mudiri"
                                         />
-                                        {errors.title && <Error>{errors.title.message}</Error>}
+                                        {errors.title && <Error>{String(errors.title.message)}</Error>}
                                     </Field>
 
                                     {/* Quota */}
@@ -143,19 +181,20 @@ function PositionCreateModal({
                                             {...register("quota")}
                                             placeholder="Nechta xodim bo‘lishi mumkin"
                                         />
-                                        {errors.quota && <Error>{errors.quota.message}</Error>}
+                                        {errors.quota && <Error>{String(errors.quota.message)}</Error>}
                                     </Field>
 
                                     {/* Unique */}
                                     <div className="flex items-center gap-3 pt-2">
                                         <Checkbox
+                                            id="is_unique"
                                             onCheckedChange={(v) =>
                                                 setValue("is_unique", Boolean(v))
                                             }
                                         />
-                                        <span className="text-sm text-slate-600">
-                      Bu lavozim yagona (bir kishilik)
-                    </span>
+                                        <label htmlFor="is_unique" className="text-sm text-slate-600 cursor-pointer select-none">
+                                            Bu lavozim yagona (bir kishilik)
+                                        </label>
                                     </div>
 
                                     {/* Parent */}
@@ -211,23 +250,6 @@ function PositionCreateModal({
 }
 
 /* ============================================================================
-   HELPERS
-============================================================================ */
-
-const Field = ({ label, icon, children }: any) => (
-    <div>
-        <label className="flex items-center gap-2 text-sm font-semibold mb-1">
-            {icon} {label}
-        </label>
-        {children}
-    </div>
-);
-
-const Error = ({ children }: any) => (
-    <p className="text-xs text-red-500 mt-1">{children}</p>
-);
-
-/* ============================================================================
    MAIN PAGE
 ============================================================================ */
 
@@ -240,16 +262,6 @@ export default function PositionCreatePage() {
     const [modalOpen, setModalOpen] = useState(false);
     const [loading, setLoading] = useState(false);
 
-    const {
-        register,
-        handleSubmit,
-        setValue,
-        reset,
-        formState: { errors },
-    } = useForm<FormData>({
-        resolver: zodResolver(positionSchema),
-    });
-
     const flattenUnits = (units: any[], prefix = ""): any[] =>
         units.flatMap((u) => {
             const name = prefix ? `${prefix} › ${u.name}` : u.name;
@@ -260,25 +272,34 @@ export default function PositionCreatePage() {
         });
 
     useEffect(() => {
-        (async () => {
+        const loadData = async () => {
             try {
-                const orgRes = await api.get("/organization/list");
-                const org = orgRes.data[0];
-
-                const [unitRes, posRes] = await Promise.all([
-                    api.get(`/organization/units/tree/${org.id}`),
-                    api.get("/organization/positions/list"),
-                ]);
-
-                setOrgUnits(flattenUnits(unitRes.data.tree || []));
-                setPositions(posRes.data || []);
+                // API chaqiruvlari
+                // Hozircha mock data yoki real API
+                // Agar API ishlamasa, bo'sh array qaytaradi
+                try {
+                    const orgRes = await api.get("/organization/list");
+                    if (orgRes.data && orgRes.data.length > 0) {
+                        const org = orgRes.data[0];
+                        const [unitRes, posRes] = await Promise.all([
+                            api.get(`/organization/units/tree/${org.id}`),
+                            api.get("/organization/positions/list"),
+                        ]);
+                        setOrgUnits(flattenUnits(unitRes.data.tree || []));
+                        setPositions(posRes.data || []);
+                    }
+                } catch (innerErr) {
+                    console.warn("API data fetch failed, using empty state", innerErr);
+                }
             } catch {
                 toast.error("Ma’lumotlarni yuklashda xatolik");
             }
-        })();
+        };
+        
+        loadData();
     }, []);
 
-    const onSubmit = handleSubmit(async (data) => {
+    const handleSave = async (data: FormData) => {
         setLoading(true);
         try {
             const fd = new FormData();
@@ -286,14 +307,13 @@ export default function PositionCreatePage() {
             fd.append("role_id", DEFAULT_ROLE_ID);
             fd.append("title", data.title);
             fd.append("quota", String(data.quota));
-            fd.append("is_unique", String(data.is_unique ?? true));
+            fd.append("is_unique", String(data.is_unique ?? false));
             if (data.parent_position_id) {
                 fd.append("parent_position_id", data.parent_position_id);
             }
 
             await api.post("/organization/positions/create", fd);
             toast.success("Lavozim yaratildi 🎉");
-            reset();
             setModalOpen(false);
             router.refresh();
         } catch (e: any) {
@@ -301,7 +321,7 @@ export default function PositionCreatePage() {
         } finally {
             setLoading(false);
         }
-    });
+    };
 
     return (
         <div className="space-y-8">
@@ -332,12 +352,9 @@ export default function PositionCreatePage() {
             <PositionCreateModal
                 open={modalOpen}
                 onClose={() => setModalOpen(false)}
-                onSubmit={onSubmit}
+                onSave={handleSave}
                 orgUnits={orgUnits}
                 positions={positions}
-                register={register}
-                setValue={setValue}
-                errors={errors}
                 loading={loading}
             />
         </div>

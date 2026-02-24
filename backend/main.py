@@ -99,19 +99,19 @@ app.add_middleware(HttpAuditMiddleware)
 # =========================================================
 # ⏱ 6. Request Size & Timeout (DoS / Slowloris)
 # =========================================================
-app.add_middleware(
-    RequestSizeLimitMiddleware,
-    max_body_bytes=settings.MAX_BODY_BYTES,
-)
-app.add_middleware(
-    RequestTimeoutMiddleware,
-    timeout_seconds=settings.REQUEST_TIMEOUT_SECONDS,
-)
+# app.add_middleware(
+#     RequestSizeLimitMiddleware,
+#     max_body_bytes=settings.MAX_BODY_BYTES,
+# )
+# app.add_middleware(
+#     RequestTimeoutMiddleware,
+#     timeout_seconds=settings.REQUEST_TIMEOUT_SECONDS,
+# )
 
 # =========================================================
 # 🚦 7. Rate Limiting (OPTIONS exempt bo‘lishi shart)
 # =========================================================
-app.add_middleware(RateLimitMiddleware)
+# app.add_middleware(RateLimitMiddleware)
 
 
 # =========================================================

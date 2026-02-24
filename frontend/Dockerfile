@@ -7,7 +7,9 @@ WORKDIR /app
 
 # Paketlarni o‘rnatish (cache uchun alohida qadam)
 COPY package.json package-lock.json* ./
-RUN npm ci
+
+# package-lock.json bo'lmasa ham ishlashi uchun npm install ishlatamiz
+RUN npm install
 
 # Loyiha kodini ko‘chirish
 COPY . .

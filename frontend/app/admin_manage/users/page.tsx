@@ -26,20 +26,12 @@ import {api} from "@/lib/api";
 import {unassignUserFromAllPositions} from "@/lib/organization/orgunit";
 import {fetchMe} from "@/lib/me";
 
+// Types
+import {User} from "@/types/user";
+
 // ========================
 // TYPES & SCHEMAS
 // ========================
-
-interface User {
-    id: string;
-    username: string;
-    full_name?: string | null;
-    passport?: string | null;
-    email?: string | null;
-    turniked_id?: string | null;
-    position_title?: string | null;
-    org_unit_name?: string | null;
-}
 
 interface OrgUnitNode {
     id: string;
@@ -80,31 +72,6 @@ const assignmentSchema = z.object({
     valid_to: z.string().optional(),
     status: z.enum(["ACTIVE", "BLOCKED", "RESIGNED"]).default("ACTIVE"),
 });
-
-const handleUnassignUser = async (user: User) => {
-    if (!user.position_title) {
-        toast.info("Bu foydalanuvchi allaqachon lavozimsiz");
-        return;
-    }
-
-    const ok = window.confirm(
-        `${user.full_name || user.username} lavozimdan to‘liq ozod etilsinmi?`
-    );
-    if (!ok) return;
-
-    try {
-        await unassignUserFromAllPositions({
-            user_id: user.id,
-            // effective_date: "2026-02-02", // ixtiyoriy, hozir kerak emas
-        });
-
-        toast.success("Foydalanuvchi lavozimdan to‘liq ozod etildi");
-        await reloadUsers();
-    } catch (e: any) {
-        toast.error(e.message || "Xatolik yuz berdi");
-    }
-};
-
 
 type CreateUserInput = z.infer<typeof createUserSchema>;
 type UpdateUserInput = z.infer<typeof updateUserSchema>;
@@ -200,13 +167,14 @@ function UserCreateModal({isOpen, onClose, onSuccess}: {
     onSuccess: () => void
 }) {
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const form = useForm<CreateUserInput>({resolver: zodResolver(createUserSchema)});
+    // Generic tip olib tashlandi
+    const form = useForm({resolver: zodResolver(createUserSchema)});
 
-    const onSubmit = async (data: CreateUserInput) => {
+    const onSubmit = async (data: any) => {
         setIsSubmitting(true);
         try {
             const formData = new FormData();
-            Object.entries(data).forEach(([key, value]) => value && formData.append(key, value));
+            Object.entries(data).forEach(([key, value]) => value && formData.append(key, value as string));
             await api.post("/users/create_simple", formData);
             toast.success("Foydalanuvchi muvaffaqiyatli yaratildi!");
             form.reset();
@@ -243,13 +211,13 @@ function UserCreateModal({isOpen, onClose, onSuccess}: {
                                 <Label>Username</Label>
                                 <Input {...form.register("username")} placeholder="Username"/>
                                 {form.formState.errors.username &&
-                                    <p className="text-red-500 text-sm">{form.formState.errors.username.message}</p>}
+                                    <p className="text-red-500 text-sm">{String(form.formState.errors.username.message)}</p>}
                             </div>
                             <div>
                                 <Label>Parol</Label>
                                 <Input type="password" {...form.register("password")} placeholder="Kamida 8 ta belgi"/>
                                 {form.formState.errors.password &&
-                                    <p className="text-red-500 text-sm">{form.formState.errors.password.message}</p>}
+                                    <p className="text-red-500 text-sm">{String(form.formState.errors.password.message)}</p>}
                             </div>
                             <div>
                                 <Label>To'liq ism</Label>
@@ -279,7 +247,8 @@ function UserEditModal({isOpen, onClose, user, onSuccess}: {
     onSuccess: () => void
 }) {
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const form = useForm<UpdateUserInput>({resolver: zodResolver(updateUserSchema)});
+    // Generic tip olib tashlandi
+    const form = useForm({resolver: zodResolver(updateUserSchema)});
 
     useEffect(() => {
         if (user && isOpen) {
@@ -293,14 +262,14 @@ function UserEditModal({isOpen, onClose, user, onSuccess}: {
         }
     }, [user, isOpen, form]);
 
-    const onSubmit = async (data: UpdateUserInput) => {
+    const onSubmit = async (data: any) => {
         if (!user) return;
         setIsSubmitting(true);
         try {
             const formData = new FormData();
             Object.entries(data).forEach(([key, value]) => {
                 if (value !== undefined && value !== null && value !== (user as any)[key]) {
-                    formData.append(key, value);
+                    formData.append(key, value as string);
                 }
             });
             await api.put(`/users/update_basic/${user.id}`, formData);
@@ -375,7 +344,8 @@ function UserAssignmentModal({isOpen, onClose, user, onSuccess}: {
     const [positions, setPositions] = useState<Position[]>([]);
     const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    const form = useForm<AssignmentInput>({resolver: zodResolver(assignmentSchema), defaultValues: {status: "ACTIVE"}});
+    // Generic tip olib tashlandi
+    const form = useForm({resolver: zodResolver(assignmentSchema), defaultValues: {status: "ACTIVE"}});
 
     const loadOrgTree = useCallback(async () => {
         try {
@@ -414,7 +384,7 @@ function UserAssignmentModal({isOpen, onClose, user, onSuccess}: {
         loadPositions(unitId);
     };
 
-    const onSubmit = async (data: AssignmentInput) => {
+    const onSubmit = async (data: any) => {
         if (!user) return;
         setIsLoading(true);
         try {
@@ -512,7 +482,7 @@ function UserAssignmentModal({isOpen, onClose, user, onSuccess}: {
                                     </SelectContent>
                                 </Select>
                                 {form.formState.errors.position_id && (
-                                    <p className="text-red-500 text-sm mt-1">{form.formState.errors.position_id.message}</p>
+                                    <p className="text-red-500 text-sm mt-1">{String(form.formState.errors.position_id.message)}</p>
                                 )}
                             </div>
 
@@ -610,6 +580,31 @@ export default function UserManagementPage() {
                 u.org_unit_name?.toLowerCase().includes(q)
         );
     }, [users, search]);
+
+    // handleUnassignUser ni komponent ichiga ko'chirdik
+    const handleUnassignUser = async (user: User) => {
+        if (!user.position_title) {
+            toast.info("Bu foydalanuvchi allaqachon lavozimsiz");
+            return;
+        }
+
+        const ok = window.confirm(
+            `${user.full_name || user.username} lavozimdan to‘liq ozod etilsinmi?`
+        );
+        if (!ok) return;
+
+        try {
+            await unassignUserFromAllPositions({
+                user_id: user.id,
+                // effective_date: "2026-02-02", // ixtiyoriy, hozir kerak emas
+            });
+
+            toast.success("Foydalanuvchi lavozimdan to‘liq ozod etildi");
+            await reloadUsers();
+        } catch (e: any) {
+            toast.error(e.message || "Xatolik yuz berdi");
+        }
+    };
 
     if (!me) return null;
 

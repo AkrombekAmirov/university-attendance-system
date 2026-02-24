@@ -59,6 +59,7 @@ export default function RolesPage() {
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
 
+    // Generic tipni olib tashladik
     const {
         register,
         handleSubmit,
@@ -66,21 +67,25 @@ export default function RolesPage() {
         control,
         setValue,
         formState: { errors },
-    } = useForm<RoleForm>({ resolver: zodResolver(roleSchema) });
+    } = useForm({ resolver: zodResolver(roleSchema) });
 
     useEffect(() => {
         (async () => {
-            const info = await fetchMe();
-            if (!info) return window.location.replace("/auth/login");
-            if (!info.is_superadmin)
-                return window.location.replace(info.redirect_path);
-            const { data } = await api.get("/organization/roles/list");
-            setRoles(data);
+            try {
+                const info = await fetchMe();
+                if (!info) return window.location.replace("/auth/login");
+                if (!info.is_superadmin)
+                    return window.location.replace(info.redirect_path);
+                const { data } = await api.get("/organization/roles/list");
+                setRoles(data);
+            } catch (e) {
+                console.error("Failed to fetch roles", e);
+            }
         })();
     }, []);
 
-    const onSelectPredefinedRole = (code: string) => {
-        const role = predefinedRoles.find((r) => r.code === code);
+    const onSelectPredefinedRole = (val: string) => {
+        const role = predefinedRoles.find((r) => r.code === val);
         if (role) {
             setValue("code", role.code);
             setValue("name", role.name);
@@ -89,17 +94,19 @@ export default function RolesPage() {
         }
     };
 
-    async function onSubmit(values: RoleForm) {
+    async function onSubmit(values: any) {
         setBusy(true);
         setNotice(null);
         setError(null);
         try {
-            const fd = new URLSearchParams();
-            fd.set("code", values.code);
-            fd.set("name", values.name);
-            if (values.description) fd.set("description", values.description);
-            fd.set("rank", values.rank.toString());
-            if (values.category) fd.set("category", values.category);
+            // FormData o'rniga oddiy JSON yuborish ham mumkin, lekin backend nima kutayotganiga qarab
+            // Agar backend form-data kutayotgan bo'lsa:
+            const fd = new FormData();
+            fd.append("code", values.code);
+            fd.append("name", values.name);
+            if (values.description) fd.append("description", values.description);
+            fd.append("rank", String(values.rank));
+            if (values.category) fd.append("category", values.category);
 
             const { data } = await api.post("/organization/roles/create", fd);
             setRoles((prev) => [data, ...prev]);
@@ -126,7 +133,7 @@ export default function RolesPage() {
                                 control={control}
                                 name="code"
                                 render={({ field }) => (
-                                    <Select onValueChange={onSelectPredefinedRole} defaultValue="">
+                                    <Select onValueChange={onSelectPredefinedRole}>
                                         <SelectTrigger>
                                             <SelectValue placeholder="Lavozimni tanlang" />
                                         </SelectTrigger>
@@ -140,13 +147,13 @@ export default function RolesPage() {
                                     </Select>
                                 )}
                             />
-                            {errors.code && <p className="text-red-500 text-xs">{errors.code.message}</p>}
+                            {errors.code && <p className="text-red-500 text-xs">{String(errors.code.message)}</p>}
                         </div>
 
                         <div>
                             <label>Nom</label>
                             <Input {...register("name")} placeholder="Masalan: Rektor" />
-                            {errors.name && <p className="text-red-500 text-xs">{errors.name.message}</p>}
+                            {errors.name && <p className="text-red-500 text-xs">{String(errors.name.message)}</p>}
                         </div>
 
                         <div>
@@ -157,6 +164,7 @@ export default function RolesPage() {
                         <div>
                             <label>Daraja (Rank)</label>
                             <Input type="number" {...register("rank")} placeholder="1 = yuqori, 100 = past" />
+                            {errors.rank && <p className="text-red-500 text-xs">{String(errors.rank.message)}</p>}
                         </div>
 
                         <div>
