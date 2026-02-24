@@ -271,7 +271,11 @@ export default function OrgUnitPage() {
             setLoading(true);
             const id = await getOrganizationId();
             setOrgId(id);
+<<<<<<< HEAD
 
+=======
+            
+>>>>>>> bcc8fb49ad3a69160c569756b6e944ba3662a768
             if (id) {
                 const tree = await getOrgUnitTree(id);
                 setUnits(tree);
