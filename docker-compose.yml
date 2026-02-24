@@ -1,188 +1,184 @@
-version: "3.9"
+# Xavfsizlik qoidalari
+x-paranoid-security: &paranoid-security
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  read_only: true
+  restart: on-failure:5
 
-x-env: &common-env
-  TZ: "Asia/Tashkent"
-  PGTZ: "Asia/Tashkent"
-  LANG: "en_US.UTF-8"
-  LC_ALL: "en_US.UTF-8"
-  PYTHONUNBUFFERED: "1"
-  POSTGRES_DB: ${POSTGRES_DB:-turnikedb}
-  POSTGRES_USER: ${POSTGRES_USER:-turnikeuser}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-StrongSecurePass123!}
-  REDIS_HOST: redis
-  REDIS_PORT: 6379
-  DB_HOST: db
-  DB_PORT: 5432
+# Og'ir yuklamali xizmatlar uchun resurs limitlari
+x-deploy-heavy: &deploy-heavy
+  resources:
+    limits:
+      cpus: '2.0'
+      memory: 1G
+      pids: 100
+    reservations:
+      memory: 256M
 
-x-logging: &default-logging
-  driver: "json-file"
-  options:
-    max-size: "50m"
-    max-file: "5"
+# Yengil xizmatlar uchun resurs limitlari
+x-deploy-light: &deploy-light
+  resources:
+    limits:
+      cpus: '1.0'
+      memory: 512M
+      pids: 100
+    reservations:
+      memory: 128M
 
 networks:
-  backend:
+  public_gateway:
     driver: bridge
+  app_tier:
+    driver: bridge
+  data_vault:
+    driver: bridge
+    # internal: true  # <-- PyCharm'dan ulanish uchun vaqtincha ochib qo'yildi. Ish bitgach izohni ob tashlang.
 
 volumes:
   pg-data:
   redis-data:
-  pgbackups:
 
 services:
-  # 🟢 PostgreSQL (Timescale + performance tuning)
+  # 🛡️ THE GATEKEEPER (WAF)
+  waf:
+    image: nginx:alpine-slim
+    container_name: university_waf
+    <<: *paranoid-security
+    deploy: *deploy-light
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID       # <-- Nginx foydalanuvchini almashtirishi uchun kerak
+      - SETGID       # <-- Nginx guruhni almashtirishi uchun kerak
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    tmpfs:
+      - /var/run:rw,noexec,nosuid,nodev
+      - /var/cache/nginx:rw,noexec,nosuid,nodev
+    command: ["nginx", "-g", "daemon off;"]
+    networks:
+      - public_gateway
+      - app_tier
+    sysctls:
+      - net.ipv4.tcp_syncookies=1
+      - net.ipv4.ip_forward=0
+
+  # 🧠 THE BRAIN (PostgreSQL Timescale)
   db:
     image: timescale/timescaledb:2.15.2-pg16
     container_name: university_db
-    restart: unless-stopped
+    <<: *paranoid-security
+    deploy: *deploy-heavy
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-turnikedb}
       POSTGRES_USER: ${POSTGRES_USER:-turnikeuser}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-StrongSecurePass123!}
       TZ: "Asia/Tashkent"
-      PGTZ: "Asia/Tashkent"
-    command:
-      - postgres
-      - -c
-      - max_connections=500
-      - -c
-      - shared_buffers=2GB
-      - -c
-      - work_mem=32MB
-      - -c
-      - maintenance_work_mem=1GB
-      - -c
-      - effective_cache_size=4GB
-      - -c
-      - checkpoint_completion_target=0.9
-      - -c
-      - max_wal_size=8GB
-      - -c
-      - min_wal_size=2GB
-      - -c
-      - wal_level=replica
-      - -c
-      - timescaledb.max_background_workers=32
-      - -c
-      - timescaledb.telemetry_level=off
-      - -c
-      - shared_preload_libraries=pg_stat_statements,timescaledb
-      - -c
-      - pg_stat_statements.max=10000
-      - -c
-      - pg_stat_statements.save=on
-    ports:
-      - "5436:5432"
+    command: ["postgres", "-c", "max_connections=500", "-c", "shared_buffers=2GB"]
     volumes:
       - pg-data:/var/lib/postgresql/data
-      # Rootdan backend ichidagi db/init ga murojaat
-      - ./backend/db/init:/docker-entrypoint-initdb.d:ro
-      - pgbackups:/backups:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-turnikeuser} -d ${POSTGRES_DB:-turnikedb} || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-    networks: [backend]
-    logging: *default-logging
+    ports:
+      - "5436:5432"  # <-- PyCharm'dan ulanish uchun vaqtincha ochildi
+    tmpfs:
+      - /var/run/postgresql:rw,noexec,nosuid,nodev
+    networks:
+      - data_vault
 
-  # 🔴 Redis (async caching va task queue)
+  # ⚡ THE CACHE (Redis)
   redis:
     image: redis:7-alpine
     container_name: university_redis
-    restart: unless-stopped
+    <<: *paranoid-security
+    deploy: *deploy-light
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
     volumes:
       - redis-data:/data
-    ports:
-      - "6379:6379"
     command: ["redis-server", "--save", "60", "10000", "--appendonly", "yes"]
-    networks: [backend]
-    logging: *default-logging
+    networks:
+      - data_vault
 
-  # 💾 Backup (PostgreSQL auto-backup)
-  backup:
-    image: prodrigestivill/postgres-backup-local:16
-    container_name: university_backup
-    restart: unless-stopped
-    environment:
-      POSTGRES_HOST: db
-      POSTGRES_DB: ${POSTGRES_DB:-turnikedb}
-      POSTGRES_USER: ${POSTGRES_USER:-turnikeuser}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-StrongSecurePass123!}
-      BACKUP_NUM_KEEP: 1
-      BACKUP_FREQUENCY: daily
-      BACKUP_SCHEDULE: "0 0 * * *"
-      SCHEDULE_TIMEZONE: Asia/Tashkent
-    volumes:
-      - pgbackups:/backups
-    depends_on:
-      - db
-    networks: [backend]
-    logging: *default-logging
-
-  # 🚀 Backend API (FastAPI)
+  # 🚀 THE ENGINE (FastAPI)
   api:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: university_api
-    restart: unless-stopped
+    <<: *paranoid-security
+    deploy: *deploy-heavy
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
     environment:
-      <<: *common-env
-    # Alembic olib tashlandi, faqat uvicorn ishga tushadi
-    command: >
-      sh -c "cd backend && python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'"
-    ports:
-      - "8000:8000"
+      POSTGRES_DB: ${POSTGRES_DB:-turnikedb}
+      POSTGRES_USER: ${POSTGRES_USER:-turnikeuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-StrongSecurePass123!}
+      # 🎯 MANA SHU UCHTA QATORNI MAJBURAN BERAMIZ (.env ni bosib o'tish uchun):
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_HOST: redis
     depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    networks: [backend]
-    logging: *default-logging
+      - db
+      - redis
+    networks:
+      - app_tier
+      - data_vault
 
-  # 👷 Worker (Turniket Events Listener)
+  # 👷 THE WORKER (Turniket Listener)
   worker:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: university_worker
-    restart: unless-stopped
+    <<: *paranoid-security
+    deploy: *deploy-heavy
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
     environment:
-      <<: *common-env
-    # Worker uchun maxsus command
-    command: ["python", "backend/worker/redis_streams/main.py"]
+      POSTGRES_DB: ${POSTGRES_DB:-turnikedb}
+      POSTGRES_USER: ${POSTGRES_USER:-turnikeuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-StrongSecurePass123!}
+      # 🎯 MANA SHU UCHTA QATORNI MAJBURAN BERAMIZ:
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_HOST: redis
+    command: ["tini", "--", "python", "backend/worker/redis_streams/main.py"]
     depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    networks: [backend]
-    logging: *default-logging
+      - redis
+      - db
+    networks:
+      - data_vault
+      - app_tier
 
-  # 🌐 Frontend (Next.js) - IRON FORTRESS MODE
+  # 🌐 THE FACE (Next.js)
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: university_frontend
-    restart: unless-stopped
+    <<: *paranoid-security
+    deploy: *deploy-heavy
     environment:
-      # Browserdan API ga murojaat qilish uchun (public URL)
-      NEXT_PUBLIC_API_URL: "http://localhost:8000"
-    ports:
-      - "3000:3000"
+      NEXT_PUBLIC_API_URL: "http://api:8000"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+      - /app/.next/cache:rw,noexec,nosuid,nodev
+    networks:
+      - app_tier
     depends_on:
       - api
-    networks: [backend]
-    logging: *default-logging
-    # 🛡️ SECURITY HARDENING
-    read_only: true             # Fayl tizimiga yozishni taqiqlash
-    cap_drop:
-      - ALL                     # Barcha kernel ruxsatlarini olib tashlash
-    security_opt:
-      - no-new-privileges:true  # Ruxsatlarni oshirishni taqiqlash
-    tmpfs:                      # Vaqtincha fayllar uchun xotira
-      - /tmp
-      - /run
