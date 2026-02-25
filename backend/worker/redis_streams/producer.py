@@ -119,7 +119,7 @@ class TurniketProducer:
         one_month_ago = self._get_one_month_ago()  # 🟢 QO'SHILDI
 
         if self.last_event_time:
-<<<<<<< HEAD
+
             start_date = self._day_start(self.last_event_time)
 
             # 🟢 QO'SHILDI: DB dagi vaqt 1 oydan eski bo'lsa, qidiruvni 1 oylik limitga tushiramiz
@@ -128,9 +128,9 @@ class TurniketProducer:
                 start_date = one_month_ago
 
             start = self._find_start_serial_by_date(start_date, total)
-=======
+
             start = self._find_start_serial_by_date(self.last_event_time, total)
->>>>>>> bcc8fb49ad3a69160c569756b6e944ba3662a768
+
         else:
             start = max(0, total - HISTORY_LIMIT)
 
@@ -144,13 +144,13 @@ class TurniketProducer:
         ):
             for evt in batch:
                 evt_time = self._parse_time(evt)
-<<<<<<< HEAD
+
 
                 # 🟢 QO'SHILDI: Turniket kutilmaganda "1 yil oldingi" xato sanali event bersa, o'tkazmaymiz
                 if evt_time and evt_time < one_month_ago:
-=======
+
                 if self.last_event_time and evt_time and evt_time <= self.last_event_time:
->>>>>>> bcc8fb49ad3a69160c569756b6e944ba3662a768
+
                     continue
 
                 self._push(evt)
@@ -186,13 +186,13 @@ class TurniketProducer:
                 ):
                     for evt in batch:
                         evt_time = self._parse_time(evt)
-<<<<<<< HEAD
+
 
                         # 🟢 QO'SHILDI: Jonli rejimda ham xato sanali event chiqib qolsa ushlab qolamiz
                         if evt_time and evt_time < one_month_ago:
-=======
+
                         if self.last_event_time and evt_time and evt_time <= self.last_event_time:
->>>>>>> bcc8fb49ad3a69160c569756b6e944ba3662a768
+
                             continue
 
                         self._push(evt)
