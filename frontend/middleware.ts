@@ -8,9 +8,32 @@ const HONEYPOT_PATHS = [
     '/phpmyadmin', '/root', '/administrator', '/api/v1/secret'
 ];
 
+// ✅ RUXSAT ETILGAN DOMENLAR (Host Header Validation)
+const ALLOWED_HOSTS = [
+    'davomat.uznpu.uz',
+    'api.davomat.uznpu.uz',
+    'localhost:3000',
+    '127.0.0.1:3000'
+];
+
 export function middleware(request: NextRequest) {
     const ip = request.ip || request.headers.get('x-forwarded-for') || 'unknown';
     const path = request.nextUrl.pathname;
+    const host = request.headers.get('host') || '';
+
+    // 0️⃣ HOST HEADER VALIDATION (Domen tekshiruvi)
+    // Agar host ruxsat etilganlar ro'yxatida bo'lmasa, bloklaymiz.
+    // Developmentda localhost ishlayveradi.
+    if (process.env.NODE_ENV === 'production') {
+        const isAllowedHost = ALLOWED_HOSTS.some(allowed => host === allowed || host.endsWith('.' + allowed));
+        if (!isAllowedHost) {
+            console.warn(`🚨 Invalid Host Header: ${host} (IP: ${ip})`);
+            return new NextResponse(JSON.stringify({ error: "Invalid Host" }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+    }
 
     // 1️⃣ HONEYPOT CHECK (Tuzoqqa tushganlarni bloklash)
     if (HONEYPOT_PATHS.some(hp => path.includes(hp))) {
@@ -19,7 +42,7 @@ export function middleware(request: NextRequest) {
     }
 
     // 2️⃣ RATE LIMITING (DDoS Protection)
-    if (!checkRateLimit(ip, { limit: 100, windowMs: 60000 })) { // Limitni biroz oshirdim (60 -> 100)
+    if (!checkRateLimit(ip, { limit: 100, windowMs: 60000 })) {
         console.warn(`⚠️ Rate Limit Exceeded: ${ip}`);
         return new NextResponse(JSON.stringify({ error: "Too Many Requests" }), {
             status: 429,
@@ -38,10 +61,6 @@ export function middleware(request: NextRequest) {
     }
 
     // 4️⃣ SECURITY HEADERS (CSP YUMSHATILDI)
-    // 'unsafe-inline' va 'unsafe-eval' Next.js ishlashi uchun kerak (ayniqsa dev mode da)
-    // Productionda 'nonce' ishlatish uchun layout.tsx ni ham o'zgartirish kerak bo'ladi.
-    // Hozircha sayt ishlashi uchun yumshoqroq CSP qo'yamiz.
-    
     const cspHeader = `
         default-src 'self';
         script-src 'self' 'unsafe-inline' 'unsafe-eval';
