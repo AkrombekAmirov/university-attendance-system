@@ -295,11 +295,7 @@ export default function PositionCreatePage() {
                 toast.error("Ma’lumotlarni yuklashda xatolik");
             }
         };
-<<<<<<< HEAD
 
-=======
-        
->>>>>>> bcc8fb49ad3a69160c569756b6e944ba3662a768
         loadData();
     }, []);
 
