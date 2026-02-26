@@ -20,6 +20,10 @@ class AppSettings(BaseSettings):
     DEBUG: bool = Field(default=True)
     API_V1_PREFIX: str = ""
     TIMEZONE: str = Field(default="Asia/Tashkent")
+    # SECURITY_MONITORING_URL: str
+    # RATE_LIMIT_MAX: int
+    # RATE_LIMIT_WINDOW: int
+    # RATE_LIMIT_WINDOW: bool
 
     # =======================
     # 🛡 Runtime security limits

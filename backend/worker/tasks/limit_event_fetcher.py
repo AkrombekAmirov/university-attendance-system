@@ -113,6 +113,6 @@ class EventFetcher:
                 break
 
             # Turniketga "nafas olishi" uchun kichik pauza (0.5 s o'rniga 0.2 s ham yetarli bo'ladi)
-            time.sleep(1.2)
+            time.sleep(2.2)
 
         print("✅ Done.")

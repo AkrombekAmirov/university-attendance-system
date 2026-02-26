@@ -6,7 +6,10 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "security:scan": "npm audit --production",
+    "security:headers": "curl -sI https://davomat.uznpu.uz | grep -E -i 'X-Frame-Options|X-Content-Type-Options|Content-Security-Policy|Strict-Transport-Security'",
+    "security:test": "node scripts/security-test.js"
   },
   "dependencies": {
     "@chakra-ui/react": "^3.29.0",
@@ -22,7 +25,8 @@
     "@react-three/fiber": "^9.4.0",
     "@tanstack/react-query": "^5.90.20",
     "@tanstack/react-virtual": "^3.13.18",
-    "axios": "^1.12.2",
+    "axios": "^1.13.5",
+    "chalk": "^4.1.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dayjs": "^1.11.19",
