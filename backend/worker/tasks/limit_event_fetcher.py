@@ -37,6 +37,7 @@ class EventFetcher:
         }
         try:
             data = self._post(payload)
+            time.sleep(1)
             self.last_error = False
             # print(int(data.get("AcsEvent", {}).get("totalMatches", 0)), "123132132132132111111111", self.ip)
             return int(data.get("AcsEvent", {}).get("totalMatches", 0))

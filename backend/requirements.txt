@@ -17,4 +17,5 @@ tenacity==9.0.0
 email-validator==2.1.0.post1
 alembic==1.14.0
 uvicorn[standard]==0.32.0
-python-multipart
+python-multipart==0.0.22
+bcrypt==3.2.2
