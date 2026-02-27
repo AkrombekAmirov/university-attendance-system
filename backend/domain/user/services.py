@@ -281,6 +281,21 @@ class UserService:
 
     async def get_by_user_turniked_id(self, user_id: UUID) -> Optional[User]:
         return await self.users.get_by_user_turniked_id(user_id)
+    async def authenticate(self, username: str, password: str, *, ip: Optional[str] = None) -> Optional[User]:
+        user = await self.users.get_by_username(username)
+        if not user or not user.is_active or user.is_blocked:
+            return None
+
+        # Lockout check
+        if user.locked_until and user.locked_until > settings_now():
+            return None
+
+        if not user.hashed_password or not verify_password(password, user.hashed_password):
+            await self.users.register_failure(user, max_attempts=5, lock_minutes=15)
+            return None
+
+        await self.users.set_login_success(user, ip or "unknown")
+        return user
 
     # -------- Registration --------
     async def register_user(self, username: str, email: str, password: str, *, is_superadmin: bool = False) -> User:
