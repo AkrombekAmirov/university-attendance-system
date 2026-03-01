@@ -1,6 +1,6 @@
 // frontend/middleware.ts
 // ════════════════════════════════════════════════════════════════════════════════
-// EARTH'S ULTIMATE FORTRESS v7.1 - WAF + NEXT.JS OPTIMIZED
+// EARTH'S ULTIMATE FORTRESS v8.0 - WAF + ANTI-CRASH PIPELINE
 // ════════════════════════════════════════════════════════════════════════════════
 
 import { NextResponse, type NextRequest } from 'next/server';
@@ -12,7 +12,6 @@ import { checkAuth } from './lib/security/auth';
 
 const rateLimiter = new AdaptiveRateLimiter();
 
-// 🟢 FIX: Next.js ishlashi uchun CSP optimizatsiya qilindi
 function applySecurityHeaders(response: NextResponse, threatScore: number) {
   const cspHeader = `
     default-src 'self';
@@ -41,66 +40,75 @@ function applySecurityHeaders(response: NextResponse, threatScore: number) {
 }
 
 export async function middleware(request: NextRequest) {
-  const ip = (request.headers.get('x-real-ip') || request.headers.get('x-forwarded-for') || '127.0.0.1').split(',')[0].trim();
-  const host = request.headers.get('host') || '';
+  // 🛡️ GLOBAL ANTI-CRASH: Agar xaker shunday URL yuborsaki, Next.js uni o'qiy olmay qulasa, biz 400 berib qaytaramiz!
+  try {
+    const ip = (request.headers.get('x-real-ip') || request.headers.get('x-forwarded-for') || '127.0.0.1').split(',')[0].trim();
+    const host = request.headers.get('host') || '';
 
-  if (Math.random() < 0.02) rateLimiter.cleanup();
+    if (Math.random() < 0.02) rateLimiter.cleanup();
 
-  if (process.env.NODE_ENV === 'production') {
-    const isAllowedHost = ALLOWED_HOSTS.some(allowed => host === allowed || host.endsWith('.' + allowed) || host.startsWith(allowed.split(':')[0]));
-    if (!isAllowedHost) return new NextResponse(null, { status: 444 });
+    if (process.env.NODE_ENV === 'production') {
+      const isAllowedHost = ALLOWED_HOSTS.some(allowed => host === allowed || host.endsWith('.' + allowed) || host.startsWith(allowed.split(':')[0]));
+      if (!isAllowedHost) return new NextResponse('Forbidden Host', { status: 403 });
+    }
+
+    let cookieScore = 0;
+    const scoreCookie = request.cookies.get('sec_score');
+    if (scoreCookie) {
+      const [scoreStr, signature] = scoreCookie.value.split('.');
+      if (signature && scoreStr && signature === await signData(scoreStr, SECURITY_SECRET)) {
+        cookieScore = parseInt(scoreStr, 10) || 0;
+      } else cookieScore = 999;
+    }
+
+    if (cookieScore >= 100) {
+      await new Promise(r => setTimeout(r, 5000));
+      return new NextResponse('Access Denied by WAF', { status: 403 });
+    }
+
+    // Tahlil markaziga jo'natish
+    const analysis = await analyzeRequest(request, ip);
+    const totalScore = cookieScore + analysis.threatScore;
+
+    const rateCheck = rateLimiter.check(ip, totalScore);
+    if (!rateCheck.allowed) return new NextResponse('Too Many Requests', { status: 429, headers: { 'Retry-After': '60' } });
+
+    if (!analysis.safe || totalScore >= 80) {
+      const newScore = Math.min(200, totalScore + (analysis.isHoneypot ? 50 : 20));
+      const newSignature = await signData(newScore.toString(), SECURITY_SECRET);
+
+      if (analysis.isHoneypot || totalScore >= 90) await new Promise(r => setTimeout(r, 3000)); // Tarpit penalty
+
+      // Xakerga hech qachon 404 emas, aynan 403 beriladi
+      const res = new NextResponse('Access Denied by WAF', { status: 403 });
+      res.cookies.set('sec_score', `${newScore}.${newSignature}`, { httpOnly: true, secure: process.env.NODE_ENV === 'production', maxAge: 86400, path: '/' });
+      return res;
+    }
+
+    // 🔐 AUTENTIFIKATSIYA
+    const authResponse = checkAuth(request);
+    if (authResponse) {
+      return applySecurityHeaders(authResponse, totalScore);
+    }
+
+    // ✅ RUXSAT
+    const response = NextResponse.next();
+    applySecurityHeaders(response, totalScore);
+
+    const newScore = Math.max(0, cookieScore - 5); // Yaxshi ishlaganlarning gunohi kechiriladi
+    if (newScore !== cookieScore) {
+      const newSignature = await signData(newScore.toString(), SECURITY_SECRET);
+      response.cookies.set('sec_score', `${newScore}.${newSignature}`, { httpOnly: true, secure: process.env.NODE_ENV === 'production', maxAge: 86400, path: '/' });
+    }
+
+    return response;
+
+  } catch (error) {
+    // 🔴 MUTLAQ QULASH HIMOYASI (Absolute Crash Protection)
+    // Agar kodning qayeridadir xato ketsa, server 500 bermaydi, balki xakerni uzib tashlaydi.
+    console.error("🚨 WAF PREVENTED A FATAL CRASH: ", error);
+    return new NextResponse('Bad Request / Malformed Payload Blocked', { status: 400 });
   }
-
-  let cookieScore = 0;
-  const scoreCookie = request.cookies.get('sec_score');
-  if (scoreCookie) {
-    const [scoreStr, signature] = scoreCookie.value.split('.');
-    if (signature && scoreStr && signature === await signData(scoreStr, SECURITY_SECRET)) {
-      cookieScore = parseInt(scoreStr, 10) || 0;
-    } else cookieScore = 999;
-  }
-
-  if (cookieScore >= 100) {
-    await new Promise(r => setTimeout(r, 5000));
-    return new NextResponse('Not Found', { status: 404 });
-  }
-
-  const analysis = await analyzeRequest(request, ip);
-  const totalScore = cookieScore + analysis.threatScore;
-
-  const rateCheck = rateLimiter.check(ip, totalScore);
-  if (!rateCheck.allowed) return new NextResponse('Too Many Requests', { status: 429, headers: { 'Retry-After': '60' } });
-
-  if (!analysis.safe || totalScore >= 80) {
-    const newScore = Math.min(200, totalScore + (analysis.isHoneypot ? 50 : 10));
-    const newSignature = await signData(newScore.toString(), SECURITY_SECRET);
-    if (analysis.isHoneypot || totalScore >= 90) await new Promise(r => setTimeout(r, 3000));
-    const res = new NextResponse('Not Found', { status: 404 });
-    res.cookies.set('sec_score', `${newScore}.${newSignature}`, { httpOnly: true, secure: process.env.NODE_ENV === 'production', maxAge: 86400, path: '/' });
-    return res;
-  }
-
-  // =====================================================================
-  // 🔐 2-BOSQICH: AUTENTIFIKATSIYA (FAQAT TOZA TRAFIK UCHUN)
-  // =====================================================================
-  const authResponse = checkAuth(request);
-  if (authResponse) {
-    return applySecurityHeaders(authResponse, totalScore);
-  }
-
-  // =====================================================================
-  // ✅ 3-BOSQICH: MUVAFFAQIYATLI RUXSAT
-  // =====================================================================
-  const response = NextResponse.next();
-  applySecurityHeaders(response, totalScore);
-
-  const newScore = Math.max(0, cookieScore - 5);
-  if (newScore !== cookieScore) {
-    const newSignature = await signData(newScore.toString(), SECURITY_SECRET);
-    response.cookies.set('sec_score', `${newScore}.${newSignature}`, { httpOnly: true, secure: process.env.NODE_ENV === 'production', maxAge: 86400, path: '/' });
-  }
-
-  return response;
 }
 
 export const config = {

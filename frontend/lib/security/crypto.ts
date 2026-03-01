@@ -21,15 +21,19 @@ export function analyzeBase64Entropy(str: string): { isSuspicious: boolean; entr
   return { isSuspicious: entropy > 5.0, entropy };
 }
 
-// 🟢 NEW: Multi-layer URI Decoding (Polyglot xujumlarga qarshi)
+// 🛡️ CRASH-PROOF URI DECODER
 export function deepDecode(str: string, maxDepth: number = 3): string {
-  let decoded = str;
+  let decoded = String(str || '');
   for (let i = 0; i < maxDepth; i++) {
     try {
       const prev = decoded;
-      decoded = decodeURIComponent(decoded);
-      if (prev === decoded) break; // Qayta shifr yo'q
-    } catch { break; }
+      // Agar URI da muammo bo'lsa qulab tushmaydi, js engine o'zi try catch orqali ushlab qoladi
+      decoded = decodeURIComponent(decoded.replace(/\+/g, '%20'));
+      if (prev === decoded) break;
+    } catch (error) {
+      // 🚨 Agar qulasa, uni tozalab, originalni qaytaradi, tizim ishlayveradi!
+      break;
+    }
   }
   return decoded;
 }

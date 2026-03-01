@@ -8,9 +8,11 @@ export class AdaptiveRateLimiter {
     const now = Date.now();
     const window = this.windows.get(ip);
 
+    // Oynani tozalash
     if (window && now - window.timestamp > WINDOW_MS) this.windows.delete(ip);
 
-    const dynamicLimit = Math.max(5, BASE_RATE_LIMIT - Math.floor(threatScore / 5)); // Xavfi yuqorilarga limit kam
+    // Xakerlik alomatlari bor IP larga ruxsat etilgan limitni keskin kamaytirish
+    const dynamicLimit = Math.max(5, BASE_RATE_LIMIT - Math.floor(threatScore / 5));
 
     if (!window) {
       this.windows.set(ip, { count: 1, timestamp: now, threatScore });
