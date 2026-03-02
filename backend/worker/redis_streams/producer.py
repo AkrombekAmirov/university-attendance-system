@@ -81,7 +81,7 @@ class TurniketProducer:
 
         while low <= high:
             mid = (low + high) // 2
-
+            time.sleep(2.5)
             events = list(
                 self.fetcher.paged_fetch_event_range(
                     mid, mid + 1, self.device.name
@@ -171,7 +171,7 @@ class TurniketProducer:
 
             if self.fetcher.last_error:
                 self._set_status("offline")
-                time.sleep(2)
+                time.sleep(5)
                 return  # exit loop → restart recovery
 
             if total > self.last_position:
