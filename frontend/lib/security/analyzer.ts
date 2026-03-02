@@ -8,7 +8,6 @@ export async function analyzeRequest(request: NextRequest, ip: string): Promise<
   let path = '';
   let search = '';
 
-  // 🛡️ DYNAMIC URL PARSER (Next.js ni qulashidan asrash uchun)
   try {
     url = request.nextUrl;
     path = url.pathname.toLowerCase();
@@ -20,67 +19,64 @@ export async function analyzeRequest(request: NextRequest, ip: string): Promise<
   let threatScore = 0;
   let isHoneypot = false;
 
-  // Header va Method tekshiruvi
-  if (!ALLOWED_METHODS.includes(request.method)) return { safe: false, threatScore: 100, reason: `Invalid Method: ${request.method}`, isHoneypot: false };
+  if (!ALLOWED_METHODS.includes(request.method)) return { safe: false, threatScore: 100, reason: `Invalid HTTP Method`, isHoneypot: false };
+
+  // 🟢 BOTNET SIGNATURE CHECK: / ekaniga qaramay ichida tushunarsiz parametrlar kelsa
+  const queryKeys = Array.from(url.searchParams.keys());
+  if (path === '/' && queryKeys.length > 2) {
+      const isBotnet = queryKeys.some(k => ['h', 'u', 'p', 'r', 'cmd', 'exec'].includes(k));
+      if (isBotnet) return { safe: false, threatScore: 100, reason: `Botnet Beacon Signature`, isHoneypot: true }; // 100 ball darhol ban beradi!
+  }
+
+  // 🟢 AGGRESSIVE EXTENSION BLOCKING: Bizning Next.js saytimizda .php, .action, .json yo'q! Kirdimi demak 100% xaker!
+  if (path.match(/\.(php|action|json|yml|yaml|xml|sql|tar|gz|zip)$/i)) {
+      return { safe: false, threatScore: 100, reason: `Forbidden Extension Scan`, isHoneypot: true };
+  }
 
   const userAgent = request.headers.get('user-agent') || '';
   if (!userAgent || userAgent.trim() === '') return { safe: false, threatScore: 100, reason: `Missing User-Agent (Bot)`, isHoneypot: false };
 
-  // 🛡️ Null-Byte Injection
   if (path.includes('%00') || search.includes('\0')) return { safe: false, threatScore: 100, reason: `Null-Byte Injection`, isHoneypot: false };
 
-  // IP va Geo blok
   if (BLOCKED_COUNTRIES.has(IP_TO_COUNTRY[ip] || 'UNKNOWN')) return { safe: false, threatScore: 100, reason: `Blocked Geo`, isHoneypot: false };
   if (MALICIOUS_IPS.has(ip)) return { safe: false, threatScore: 100, reason: `Known Malicious IP`, isHoneypot: false };
 
-  // Honeypot qopqonlari
-  if (HONEYPOTS.some(hp => path.includes(hp.toLowerCase())) || path.endsWith('.php') || path.endsWith('.env')) {
-    console.error(`🚨 HONEYPOT TRIGGERED by ${ip} on ${path}`);
+  if (HONEYPOTS.some(hp => path.includes(hp.toLowerCase()))) {
     return { safe: false, threatScore: 100, reason: `Honeypot Access`, isHoneypot: true };
   }
 
-  // Hajm tekshiruvi (Hackerlar DDoS qilishini oldini olish)
-  if (url.href.length > MAX_URL_LENGTH) threatScore += 50;
-  if (search.length > MAX_QUERY_LENGTH) threatScore += 50;
+  if (url.href.length > 1024) threatScore += 50;
+  if (search.length > 512) threatScore += 50;
 
-  // 🛡️ DPI: Payload yig'ish (URL, Query, Headers, Body)
   let combinedPayload = `${path} | ${search} | `;
-
   request.headers.forEach((value, key) => {
       if (key.toLowerCase() !== 'cookie') combinedPayload += `${key}:${value} | `;
   });
 
-  // Body Inspection (Agar hajmi judayam katta bo'lmasa)
-  const contentLength = Number(request.headers.get('content-length') || 0);
-  if (contentLength > 0 && contentLength < 500000 && ['POST', 'PUT', 'PATCH'].includes(request.method) && !request.headers.get('content-type')?.includes('multipart/form-data')) {
+  // Tizimga ortiqcha yuk tushmasligi uchun BODY o'qish hajmi cheklandi (Faqat xavfli metodlarda)
+  if (['POST', 'PUT'].includes(request.method)) {
     try {
       const clonedReq = request.clone();
       const bodyText = await clonedReq.text();
-      combinedPayload += bodyText.slice(0, 8192); // Max 8KB DPI skaneri
-    } catch (e) {
-      // Ignored, stream cannot be read
-    }
+      combinedPayload += bodyText.slice(0, 4096);
+    } catch (e) {}
   }
 
-  // 🛡️ Mantiqiy Pattern Skaneri
   for (const [category, patterns] of Object.entries(PATTERNS)) {
     for (const pattern of patterns) {
       if (typeof pattern === 'object' && 'pattern' in pattern) {
         if (pattern.pattern.test(combinedPayload)) {
           const { isSuspicious, entropy } = analyzeBase64Entropy(search);
-          if (isSuspicious || entropy > pattern.entropy) {
-            threatScore += 80;
-            console.error(`🚨 WAF DETECTED: High-Entropy Payload (${category}) from ${ip}`);
-          }
+          if (isSuspicious || entropy > pattern.entropy) threatScore += 100; // Darhol Ban
         }
       } else if (pattern.test(combinedPayload)) {
-        threatScore += category === 'miner' ? 90 : 60;
+        threatScore += category === 'miner' ? 100 : 80;
       }
     }
   }
 
-  if (MINER_FINGERPRINTS.some(fp => fp.test(userAgent))) threatScore += 90;
-  if (/\.\.\//.test(path) || /%2e%2e/.test(path)) threatScore += 100; // Path Traversal uchun darhol blok!
+  if (MINER_FINGERPRINTS.some(fp => fp.test(userAgent))) threatScore += 100;
+  if (/\.\.\//.test(path) || /%2e%2e/.test(path)) threatScore += 100;
 
   return { safe: threatScore < 80, threatScore, reason: `Score: ${threatScore}`, isHoneypot };
 }
