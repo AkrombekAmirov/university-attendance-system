@@ -37,6 +37,7 @@ class EventFetcher:
         }
         try:
             data = self._post(payload)
+            time.sleep(3)
             self.last_error = False
             # print(int(data.get("AcsEvent", {}).get("totalMatches", 0)), "123132132132132111111111", self.ip)
             return int(data.get("AcsEvent", {}).get("totalMatches", 0))
@@ -113,6 +114,6 @@ class EventFetcher:
                 break
 
             # Turniketga "nafas olishi" uchun kichik pauza (0.5 s o'rniga 0.2 s ham yetarli bo'ladi)
-            time.sleep(2.2)
+            time.sleep(4.2)
 
         print("✅ Done.")

@@ -125,10 +125,18 @@ class User(BaseSQLModel, table=True):
         self.locked_until = None
 
     def mark_login_failure(self, max_attempts: int, lock_minutes: int):
+        now = datetime.utcnow()
+        
+        # Agar blok muddati tugagan bo'lsa, hisoblagichni nollaymiz
+        if self.locked_until and self.locked_until < now:
+            self.failed_login_attempts = 0
+            self.locked_until = None
+
         self.failed_login_attempts += 1
-        self.last_failed_login_at = datetime.utcnow()
+        self.last_failed_login_at = now
+        
         if self.failed_login_attempts >= max_attempts:
-            self.locked_until = datetime.utcnow() + timedelta(minutes=lock_minutes)
+            self.locked_until = now + timedelta(minutes=lock_minutes)
 
     def mark_password_change(self):
         self.password_changed_at = datetime.utcnow()

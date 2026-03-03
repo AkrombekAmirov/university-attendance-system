@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import APIRouter, Depends, Request, Form
+from fastapi import APIRouter, Depends, Request, Response, Form
 from typing import List
 from uuid import UUID
 
@@ -19,9 +19,10 @@ router = APIRouter(prefix="/users", tags=["Users & Auth"])
 # ----------------------------
 def get_ctrl(
         request: Request,
+        response: Response,
         db: DatabaseService = Depends(get_db),
 ) -> UserAuthController:
-    return UserAuthController(db=db, request=request)
+    return UserAuthController(db=db, request=request, response=response)
 
 
 # ----------------------------
@@ -40,9 +41,10 @@ async def login_endpoint(
 @router.post("/auth/refresh", response_model=TokenResponse)
 async def refresh_endpoint(
         ctrl: UserAuthController = Depends(get_ctrl),
-        refresh_token: str = Form(...),
+        refresh_token: str = Form(None), # Endi ixtiyoriy, chunki cookie dan olinishi mumkin
 ):
-    return await ctrl.refresh(refresh_token)
+    # Agar form data bo'lmasa, bo'sh string kelishi mumkin, controller ichida cookie tekshiriladi
+    return await ctrl.refresh(refresh_token or "")
 
 
 @router.post("/auth/logout_all")

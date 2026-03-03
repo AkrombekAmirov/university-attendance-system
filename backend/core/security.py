@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID, uuid4
 import hashlib
+import redis.asyncio as redis
 
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
@@ -20,6 +21,9 @@ settings = get_settings()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/users/auth/login")
 
+# Redis connection for Rate Limiting
+redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+
 
 # ===== Hash helpers =====
 def get_password_hash(password: str) -> str:
@@ -30,6 +34,39 @@ def verify_password(plain_password: str, hashed: str) -> bool:
 
 def sha256(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+# ===== Rate Limiting (Brute Force Protection) =====
+async def check_login_attempts(username: str, ip: str):
+    """
+    Login urinishlarini tekshirish.
+    IP va Username kombinatsiyasi bo'yicha cheklov.
+    """
+    key = f"login_attempts:{ip}:{username}"
+    attempts = await redis_client.get(key)
+    
+    if attempts and int(attempts) >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Please try again in 15 minutes."
+        )
+
+async def increment_login_attempts(username: str, ip: str):
+    """
+    Noto'g'ri urinishni sanash.
+    """
+    key = f"login_attempts:{ip}:{username}"
+    pipe = redis_client.pipeline()
+    pipe.incr(key)
+    pipe.expire(key, 900) # 15 daqiqa
+    await pipe.execute()
+
+async def clear_login_attempts(username: str, ip: str):
+    """
+    Muvaffaqiyatli loginda tozalash.
+    """
+    key = f"login_attempts:{ip}:{username}"
+    await redis_client.delete(key)
 
 
 # ===== Token payloads =====
@@ -163,6 +200,8 @@ async def validate_refresh_token(db: DatabaseService, token: str, fingerprint: O
         raise HTTPException(status_code=401, detail="Refresh token expired")
 
     if fingerprint and sess.fingerprint_hash and sess.fingerprint_hash != sha256(fingerprint):
+        # Fingerprint o'zgargan bo'lsa, sessiyani bekor qilish kerak (xavfsizlik uchun)
+        # await sess_repo.revoke(sess) # Ixtiyoriy: qattiq rejimda
         raise HTTPException(status_code=401, detail="Device fingerprint mismatch")
 
     return payload
