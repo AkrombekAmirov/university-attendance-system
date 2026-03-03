@@ -1,6 +1,6 @@
 // frontend/middleware.ts
 // ════════════════════════════════════════════════════════════════════════════════
-// EARTH'S ULTIMATE FORTRESS v10.0 - "NIGHT LOCKDOWN" EDITION
+// EARTH'S ULTIMATE FORTRESS v12.0 - MAXIMUM DEFENSE (ALL LAYERS COMBINED)
 // ════════════════════════════════════════════════════════════════════════════════
 
 import { NextResponse, type NextRequest } from 'next/server';
@@ -9,7 +9,7 @@ import { signData } from './lib/security/crypto';
 import { AdaptiveRateLimiter, isIpBanned, banIp } from './lib/security/rate-limiter';
 import { analyzeRequest } from './lib/security/analyzer';
 import { checkAuth } from './lib/security/auth';
-import { isNightLockdownActive, isAllowedDuringNight } from './lib/security/curfew'; // 🟢 YANGI QO'SHILDI
+import { isNightLockdownActive, isAllowedDuringNight } from './lib/security/curfew';
 
 const rateLimiter = new AdaptiveRateLimiter();
 
@@ -38,19 +38,12 @@ export async function middleware(request: NextRequest) {
     const path = request.nextUrl.pathname;
     const method = request.method;
 
-    // =====================================================================
-    // 🛑 1-QATLAM: "ZERO-TRUST" TUNGI PROTOKOL (00:00 - 05:00 UZT)
-    // =====================================================================
-    if (isNightLockdownActive()) {
-        if (!isAllowedDuringNight(path, method)) {
-            // Xaker .env yoki /server izlasa, darhol uzamiz! (Tizimga og'irlik tushmaydi)
-            return new NextResponse(null, { status: 403 });
-        }
+    // 🧱 1-QATLAM: TUNGI KOMENDANTLIK SOATI (00:00 - 05:00)
+    if (isNightLockdownActive() && !isAllowedDuringNight(path, method)) {
+        return new NextResponse(null, { status: 403 });
     }
 
-    // =====================================================================
-    // 🛡️ 2-QATLAM: GILYOTINA (IP qora ro'yxati)
-    // =====================================================================
+    // 🧱 2-QATLAM: GILYOTINA (IP QORA RO'YXATI)
     if (isIpBanned(ip)) {
         return new NextResponse(null, { status: 403 });
     }
@@ -63,9 +56,20 @@ export async function middleware(request: NextRequest) {
       if (!isAllowedHost) return new NextResponse(null, { status: 403 });
     }
 
-    // =====================================================================
-    // 🛡️ 3-QATLAM: WAF TAHLILI (DPI & Payload tekshiruvi)
-    // =====================================================================
+    // 🧱 3-QATLAM: WAF TAHLILI (Fingerprint, DPI, Honeypots)
+    const analysis = await analyzeRequest(request, ip);
+
+    // 🧱 4-QATLAM: TARPIT (REVERSE-DDOS VA BAN)
+    if (analysis.threatScore >= 1000 || analysis.isHoneypot) {
+        // Xakerni 48 soatga Gilyotinaga kiritamiz
+        banIp(ip, 48);
+
+        // 15 soniya ushlab turib o'zini qulatamiz
+        await new Promise(resolve => setTimeout(resolve, 15000));
+        return new NextResponse(null, { status: 403 });
+    }
+
+    // 🧱 5-QATLAM: COOKIE TRACKING & RATE LIMIT
     let cookieScore = 0;
     const scoreCookie = request.cookies.get('sec_score');
     if (scoreCookie) {
@@ -75,18 +79,13 @@ export async function middleware(request: NextRequest) {
       }
     }
 
-    const analysis = await analyzeRequest(request, ip);
     const totalScore = cookieScore + analysis.threatScore;
-
     const rateCheck = rateLimiter.check(ip, totalScore);
+
     if (!rateCheck.allowed) return new NextResponse('Too Many Requests', { status: 429 });
 
     if (!analysis.safe || totalScore >= 80) {
-      if (analysis.isHoneypot || totalScore >= 100) {
-          banIp(ip, 48); // Qopqonga tushganlarni endi 48 soatga (2 kunga) bloklaymiz
-      }
-
-      const newScore = Math.min(200, totalScore + (analysis.isHoneypot ? 50 : 20));
+      const newScore = Math.min(200, totalScore + 20);
       const newSignature = await signData(newScore.toString(), SECURITY_SECRET);
 
       const res = new NextResponse('Forbidden', { status: 403 });
@@ -94,19 +93,18 @@ export async function middleware(request: NextRequest) {
       return res;
     }
 
-    // =====================================================================
-    // 🔐 4-QATLAM: AUTENTIFIKATSIYA VA RUXSAT
-    // =====================================================================
+    // 🧱 6-QATLAM: AUTENTIFIKATSIYA
     const authResponse = checkAuth(request);
     if (authResponse) return applySecurityHeaders(authResponse, totalScore);
 
+    // 🧱 7-QATLAM: TOZA TRAFIKKA RUXSAT
     const response = NextResponse.next();
     applySecurityHeaders(response, totalScore);
     return response;
 
   } catch (error) {
-    // Xaker tizimni qulatmoqchi bo'lsa, hech qanday xato qaytarmaymiz.
-    return new NextResponse('Bad Request', { status: 400 });
+    // Qulashlardan mutlaq himoya
+    return new NextResponse(null, { status: 400 });
   }
 }
 
