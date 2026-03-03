@@ -30,21 +30,6 @@ volumes:
   pgbackups:
 
 services:
-  # 🛡️ NGINX (Reverse Proxy & WAF) - Yagona kirish nuqtasi
-  nginx:
-    image: nginx:alpine
-    container_name: university_nginx
-    restart: unless-stopped
-    ports:
-      - "80:80" # Faqat shu port ochiq bo'ladi
-    volumes:
-      - ./devops/docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - frontend
-      - api
-    networks: [backend]
-    logging: *default-logging
-
   # 🟢 PostgreSQL (Timescale + performance tuning)
   db:
     image: timescale/timescaledb:2.15.2-pg16
@@ -115,25 +100,25 @@ services:
     logging: *default-logging
 
   # 💾 Backup (PostgreSQL auto-backup)
-  backup:
-    image: prodrigestivill/postgres-backup-local:16
-    container_name: university_backup
-    restart: unless-stopped
-    environment:
-      POSTGRES_HOST: db
-      POSTGRES_DB: ${POSTGRES_DB:-turnikedb}
-      POSTGRES_USER: ${POSTGRES_USER:-turnikeuser}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-StrongSecurePass123!}
-      BACKUP_NUM_KEEP: 1
-      BACKUP_FREQUENCY: daily
-      BACKUP_SCHEDULE: "0 0 * * *"
-      SCHEDULE_TIMEZONE: Asia/Tashkent
-    volumes:
-      - pgbackups:/backups
-    depends_on:
-      - db
-    networks: [backend]
-    logging: *default-logging
+#  backup:
+#    image: prodrigestivill/postgres-backup-local:16
+#    container_name: university_backup
+#    restart: unless-stopped
+#    environment:
+#      POSTGRES_HOST: db
+#      POSTGRES_DB: ${POSTGRES_DB:-turnikedb}
+#      POSTGRES_USER: ${POSTGRES_USER:-turnikeuser}
+#      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-StrongSecurePass123!}
+#      BACKUP_NUM_KEEP: 1
+#      BACKUP_FREQUENCY: daily
+#      BACKUP_SCHEDULE: "0 0 * * *"
+#      SCHEDULE_TIMEZONE: Asia/Tashkent
+#    volumes:
+#      - pgbackups:/backups
+#    depends_on:
+#      - db
+#    networks: [backend]
+#    logging: *default-logging
 
   # 🚀 Backend API (FastAPI)
   api:

@@ -3,13 +3,13 @@ from dataclasses import dataclass
 from typing import Optional, List
 from uuid import UUID
 
-from fastapi import Request, HTTPException, status
+from fastapi import Request, HTTPException, status, Response
 
 from backend.core.DatabaseService.base import DatabaseService
 from backend.core.LoggingService import logger
 from backend.core.audit import audit_action
 from backend.core.config import get_settings
-from backend.core.security import validate_refresh_token
+from backend.core.security import validate_refresh_token, check_login_attempts, increment_login_attempts, clear_login_attempts
 from backend.domain.user.models import User
 from backend.domain.user.services import UserService
 from backend.domain.organization.services import OrganizationService
@@ -25,6 +25,7 @@ class UserAuthController:
     """
     db: DatabaseService
     request: Request
+    response: Response # Cookie uchun kerak
 
     def __post_init__(self):
         self.settings = get_settings()
@@ -47,6 +48,9 @@ class UserAuthController:
     # ---------- AUTH ----------
     @audit_action(action="AUTH.LOGIN", entity_type="User")
     async def login(self, payload: LoginIn) -> TokenResponse:
+        # 1. Rate Limit Check
+        await check_login_attempts(payload.username, self._client_ip())
+
         user = await self.svc.authenticate(
             payload.username,
             payload.password,
@@ -54,7 +58,9 @@ class UserAuthController:
         )
 
         if not user:
-            # 🔥 Failed login ham audit + rate-limit bilan bog‘lanadi
+            # 2. Increment Failed Attempts
+            await increment_login_attempts(payload.username, self._client_ip())
+            
             logger.warning(
                 "❌ Login failed",
                 extra={
@@ -67,6 +73,9 @@ class UserAuthController:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials or locked",
             )
+
+        # 3. Clear Attempts on Success
+        await clear_login_attempts(payload.username, self._client_ip())
 
         access, refresh = await self.svc.issue_tokens(
             user,
@@ -89,6 +98,26 @@ class UserAuthController:
             },
         )
 
+        # 4. Set HttpOnly Cookies (XSS Protection)
+        # Access token qisqa muddatli, refresh token uzoq muddatli
+        self.response.set_cookie(
+            key="access_token",
+            value=access,
+            httponly=True,
+            secure=True, # Productionda True bo'lishi shart (HTTPS)
+            samesite="lax",
+            max_age=self.settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        )
+        
+        self.response.set_cookie(
+            key="refresh_token",
+            value=refresh,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            max_age=self.settings.REFRESH_TOKEN_EXPIRE_MINUTES * 60
+        )
+
         return TokenResponse(
             access_token=access,
             refresh_token=refresh,
@@ -98,16 +127,22 @@ class UserAuthController:
 
     @audit_action(action="AUTH.REFRESH", entity_type="User")
     async def refresh(self, refresh_token: str) -> TokenResponse:
+        # Cookie dan olishga harakat qilamiz, agar body da bo'lmasa
+        token_to_use = refresh_token or self.request.cookies.get("refresh_token")
+        
+        if not token_to_use:
+             raise HTTPException(status_code=401, detail="Refresh token missing")
+
         payload = await validate_refresh_token(
             self.db,
-            refresh_token,
+            token_to_use,
             self._fingerprint(),
         )
 
         user_id = UUID(payload.sub)
 
         access, new_refresh = await self.svc.refresh_tokens(
-            refresh_token,
+            token_to_use,
             fingerprint=self._fingerprint(),
             user_agent=self._user_agent(),
             ip=self._client_ip(),
@@ -118,6 +153,25 @@ class UserAuthController:
         redirect_path = decide_redirect(
             is_superadmin=user.is_superadmin if user else False,
             meta=user.meta if user else None
+        )
+        
+        # Update Cookies
+        self.response.set_cookie(
+            key="access_token",
+            value=access,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            max_age=self.settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        )
+        
+        self.response.set_cookie(
+            key="refresh_token",
+            value=new_refresh,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            max_age=self.settings.REFRESH_TOKEN_EXPIRE_MINUTES * 60
         )
 
         return TokenResponse(
@@ -130,6 +184,11 @@ class UserAuthController:
     @audit_action(action="AUTH.LOGOUT_ALL", entity_type="User")
     async def logout_all(self, current: User) -> dict:
         await self.svc.revoke_all_sessions(current.id)
+        
+        # Clear Cookies
+        self.response.delete_cookie("access_token")
+        self.response.delete_cookie("refresh_token")
+        
         logger.info(
             "🔒 All sessions revoked",
             extra={"user": current.username},
@@ -202,99 +261,6 @@ class UserAuthController:
         return user
 
     async def get_users(self, current: User) -> List[UserOut]:
-        # from openpyxl import load_workbook
-        # from backend.file_path import get_file_path
-        # import secrets
-        # import string
-        # import re
-        # from pathlib import Path
-        #
-        # # ─────────────────────────────
-        # # PASSWORD GENERATOR
-        # # ─────────────────────────────
-        # def generate_password(length: int = 12) -> str:
-        #     alphabet = (
-        #             string.ascii_lowercase +
-        #             string.ascii_uppercase +
-        #             string.digits +
-        #             "!@#$%&*"
-        #     )
-        #     while True:
-        #         password = ''.join(secrets.choice(alphabet) for _ in range(length))
-        #         if (
-        #                 any(c.islower() for c in password) and
-        #                 any(c.isupper() for c in password) and
-        #                 any(c.isdigit() for c in password) and
-        #                 any(c in "!@#$%&*" for c in password)
-        #         ):
-        #             return password
-        #
-        # # ─────────────────────────────
-        # # USERNAME NORMALIZER
-        # # ─────────────────────────────
-        # def normalize_username(full_name: str) -> str:
-        #     if not full_name:
-        #         return ""
-        #
-        #     name = full_name.lower()
-        #
-        #     replace_map = {
-        #         "o‘": "o", "o'": "o",
-        #         "g‘": "g", "g'": "g",
-        #     }
-        #
-        #     for k, v in replace_map.items():
-        #         name = name.replace(k, v)
-        #
-        #     name = re.sub(r"[^a-z\s]", "", name)
-        #     parts = name.split()
-        #
-        #     if len(parts) < 2:
-        #         return ""
-        #
-        #     family = parts[0]
-        #     first_name = parts[1]
-        #     return f"{first_name}{family}"
-        #
-        # # ─────────────────────────────
-        # # LOAD EXCEL
-        # # ─────────────────────────────
-        # file = await get_file_path("hr_list.xlsx")
-        # workbook = load_workbook(filename=file)
-        # sheet = workbook.active
-        # rows = list(sheet.iter_rows(min_row=1, values_only=True))
-        #
-        # # ─────────────────────────────
-        # # TXT FILE PREPARE
-        # # ─────────────────────────────
-        # output_file = Path("created_users.txt")
-        #
-        # with output_file.open("w", encoding="utf-8") as f:
-        #     for row in rows:
-        #         full_name = row[0]
-        #         username = normalize_username(full_name)
-        #
-        #         if not username:
-        #             continue
-        #
-        #         password = generate_password()
-        #
-        #         # 🔐 TXT ga yozish
-        #         f.write(f"{username} : {password}\n")
-        #
-        #         # 👤 USER CREATE
-        #         await self.svc.create_user(
-        #             username=username,
-        #             email=f"{username}@uznpu.com",
-        #             password=password,  # ⚠️ hashing svc ichida bo‘lishi kerak
-        #             full_name=full_name,
-        #             passport=None,
-        #             turniket_id=None,
-        #             is_superadmin=False,
-        #             is_active=True,
-        #         )
-
-        # ─────────────────────────────
         return await self.svc.get_users()
 
     async def get_user_position_auth(self, position_id: UUID):
