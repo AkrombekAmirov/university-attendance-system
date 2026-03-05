@@ -13,29 +13,33 @@ export async function analyzeRequest(request: NextRequest, ip: string): Promise<
     path = url.pathname.toLowerCase();
     search = deepDecode(url.search || '');
   } catch (e) {
-    // Malformed URI yuborgani uchun u avtomatik Tarpitga tushadi
     return { safe: false, threatScore: 1000, reason: `Malformed URI Attack Attempt`, isHoneypot: true };
   }
 
   // =====================================================================
-  // 🕵️ 1-QATLAM: BROWSER FINGERPRINTING (BOTLARNI QIRISH)
+  // 🕵️ 1-QATLAM: BROWSER FINGERPRINTING & HEADER INSPECTION
   // =====================================================================
   const ua = request.headers.get('user-agent')?.toLowerCase() || '';
   const acceptLang = request.headers.get('accept-language') || '';
 
-  // QOIDA 1: Haqiqiy brauzerlar doim Tilni (Accept-Language) yuboradi. Python/Go/Nuclei botlari bunga erinadi!
   if (!acceptLang) {
       return { safe: false, threatScore: 1000, reason: `Missing Accept-Language (Bot Fingerprint)`, isHoneypot: true };
   }
 
-  // QOIDA 2: Arzon botlarning User-Agent ni darhol fosh qilish
-  const botSignatures = ['curl', 'python', 'go-http', 'java', 'nmap', 'zgrab', 'nuclei', 'postman', 'insomnia', 'wget', 'urllib'];
+  // 🟢 KENGAYTIRILGAN: Global va professional kiber-skanerlar ro'yxati
+  const botSignatures = ['curl', 'python', 'go-http', 'java', 'nmap', 'zgrab', 'nuclei', 'postman', 'insomnia', 'wget', 'urllib', 'masscan', 'censys', 'shodan', 'libwww'];
   if (botSignatures.some(bot => ua.includes(bot)) || ua === '') {
       return { safe: false, threatScore: 1000, reason: `Known Bot User-Agent`, isHoneypot: true };
   }
 
-  // QOIDA 3: Ruxsat etilmagan kengaytmalar (PHP, ENV, SQL) - hech qanday Next.js sayti bularni ishlatmaydi!
-  if (path.match(/\.(php|action|json|yml|yaml|xml|sql|tar|gz|zip|env|bak|swp)$/i)) {
+  // 🟢 YANGI: Log4Shell va Shellshock kabi Header orqali qilinadigan RCE xujumlarini ushlash
+  for (const [key, value] of request.headers.entries()) {
+      if (value.includes('${jndi:') || value.includes('() {') || value.includes('||')) {
+          return { safe: false, threatScore: 1000, reason: `Malicious Payload in Headers (RCE Attempt)`, isHoneypot: true };
+      }
+  }
+
+  if (path.match(/\.(php|action|json|yml|yaml|xml|sql|tar|gz|zip|env|bak|swp|jsp|aspx)$/i)) {
       return { safe: false, threatScore: 1000, reason: `Forbidden Extension Scan`, isHoneypot: true };
   }
 
@@ -46,16 +50,13 @@ export async function analyzeRequest(request: NextRequest, ip: string): Promise<
 
   const queryKeys = Array.from(url.searchParams.keys());
 
-  // Zombi Botnet / WordPress Skaner qopqoni
-  if (path === '/' && queryKeys.length > 2 && queryKeys.some(k => ['h', 'u', 'p', 'r', 'cmd', 'exec', 'rest_route', 'author'].includes(k))) {
+  if (path === '/' && queryKeys.length > 2 && queryKeys.some(k => ['h', 'u', 'p', 'r', 'cmd', 'exec', 'rest_route', 'author', 's'].includes(k))) {
       return { safe: false, threatScore: 1000, reason: `Botnet/CMS Beacon Signature`, isHoneypot: true };
   }
 
   if (path.includes('%00') || search.includes('\0')) return { safe: false, threatScore: 1000, reason: `Null-Byte Injection`, isHoneypot: true };
-
   if (BLOCKED_COUNTRIES.has(IP_TO_COUNTRY[ip] || 'UNKNOWN')) return { safe: false, threatScore: 100, reason: `Blocked Geo`, isHoneypot: false };
 
-  // Qopqonlarni tekshirish (1000 ball beriladi - to'g'ridan-to'g'ri o'lim)
   if (HONEYPOTS.some(hp => path.includes(hp.toLowerCase()))) {
     return { safe: false, threatScore: 1000, reason: `Honeypot Access`, isHoneypot: true };
   }
