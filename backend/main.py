@@ -33,6 +33,16 @@ from backend.interfaces.hr_api import hr_router
 
 settings = get_settings()
 
+# 🟢 YANGI: Xavfsiz qilingan shubhali so'rovlar bloki (CORS ni buzmaysiz, toza ma'lumotni bloklamaysiz)
+class BlockSuspiciousMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        q = str(request.url).lower()
+        # "base64" olib tashlandi, chunki u o'zingizning ishingizga xalaqit beradi!
+        blocked = ["wget", "curl", "/bin/sh", "$(", "nc ", "jndi:ldap"]
+        if any(x in q for x in blocked):
+            logger.critical(f"🚨 WAF BLOCKED MALICIOUS URL: {request.client.host} -> {q}")
+            return JSONResponse(status_code=403, content={"detail": "Access Denied by Firewall"})
+        return await call_next(request)
 app = FastAPI(
     title=settings.APP_NAME,
     debug=bool(settings.DEBUG and settings.APP_ENV != "production"),
@@ -55,18 +65,13 @@ app.add_middleware(
                   ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=[
-        "Authorization",
-        "Content-Type",
-        "X-Request-ID",
-        "Accept",
-        "Origin",
-    ],
+    allow_headers=["*"],
     max_age=600,
 )
 # =========================================================
 # 🛡 1. ACTIVE RECON AND STICK BLOCKING (NEW, SENIOR LEVEL)
 # =========================================================
+app.add_middleware(BlockSuspiciousMiddleware)
 app.add_middleware(StrictPathAllowlistMiddleware)
 # app.add_middleware(HttpMethodGuardMiddleware)
 # app.add_middleware(HeaderSanityMiddleware)
