@@ -1,6 +1,6 @@
 // frontend/lib/security/analyzer.ts
 import type { NextRequest } from 'next/server';
-import { ALLOWED_METHODS, BLOCKED_COUNTRIES, HONEYPOTS, IP_TO_COUNTRY, MALICIOUS_IPS, MAX_QUERY_LENGTH, MAX_URL_LENGTH, MINER_FINGERPRINTS, PATTERNS } from './constants';
+import { ALLOWED_METHODS, BLOCKED_COUNTRIES, HONEYPOTS_REGEX, IP_TO_COUNTRY, MALICIOUS_IPS, PATTERNS } from './constants';
 import { analyzeBase64Entropy, deepDecode } from './crypto';
 
 export async function analyzeRequest(request: NextRequest, ip: string): Promise<{ safe: boolean; threatScore: number; reason: string; isHoneypot: boolean }> {
@@ -10,55 +10,49 @@ export async function analyzeRequest(request: NextRequest, ip: string): Promise<
 
   try {
     url = request.nextUrl;
-    path = url.pathname.toLowerCase();
+    path = deepDecode(url.pathname.toLowerCase()); // Yo'lni ham decode qilamiz, path traversal va obfuscationga qarshi
     search = deepDecode(url.search || '');
   } catch (e) {
     return { safe: false, threatScore: 1000, reason: `Malformed URI Attack Attempt`, isHoneypot: true };
   }
 
-  // =====================================================================
-  // 🕵️ 1-QATLAM: BROWSER FINGERPRINTING & HEADER INSPECTION
-  // =====================================================================
+  // BROWSER FINGERPRINTING & HEADER INSPECTION
   const ua = request.headers.get('user-agent')?.toLowerCase() || '';
   const acceptLang = request.headers.get('accept-language') || '';
 
-  if (!acceptLang) {
+  if (!acceptLang && ua !== '') { // Agar agent bo'lsa-yu til bo'lmasa = BOT
       return { safe: false, threatScore: 1000, reason: `Missing Accept-Language (Bot Fingerprint)`, isHoneypot: true };
   }
 
-  // 🟢 KENGAYTIRILGAN: Global va professional kiber-skanerlar ro'yxati
   const botSignatures = ['curl', 'python', 'go-http', 'java', 'nmap', 'zgrab', 'nuclei', 'postman', 'insomnia', 'wget', 'urllib', 'masscan', 'censys', 'shodan', 'libwww'];
   if (botSignatures.some(bot => ua.includes(bot)) || ua === '') {
       return { safe: false, threatScore: 1000, reason: `Known Bot User-Agent`, isHoneypot: true };
   }
 
-  // 🟢 YANGI: Log4Shell va Shellshock kabi Header orqali qilinadigan RCE xujumlarini ushlash
   for (const [key, value] of request.headers.entries()) {
       if (value.includes('${jndi:') || value.includes('() {') || value.includes('||')) {
           return { safe: false, threatScore: 1000, reason: `Malicious Payload in Headers (RCE Attempt)`, isHoneypot: true };
       }
   }
 
-  if (path.match(/\.(php|action|json|yml|yaml|xml|sql|tar|gz|zip|env|bak|swp|jsp|aspx)$/i)) {
+  if (path.match(/\.(php|action|json|yml|yaml|xml|sql|tar|gz|zip|env|bak|swp|jsp|aspx|ts)$/i) && !path.includes('manifest.json')) {
       return { safe: false, threatScore: 1000, reason: `Forbidden Extension Scan`, isHoneypot: true };
   }
 
-  // =====================================================================
-  // 🛡️ 2-QATLAM: AN'ANAVIY WAF QOIDALARI
-  // =====================================================================
+  // WAF QOIDALARI
   if (!ALLOWED_METHODS.includes(request.method)) return { safe: false, threatScore: 1000, reason: `Invalid HTTP Method`, isHoneypot: true };
 
   const queryKeys = Array.from(url.searchParams.keys());
-
   if (path === '/' && queryKeys.length > 2 && queryKeys.some(k => ['h', 'u', 'p', 'r', 'cmd', 'exec', 'rest_route', 'author', 's'].includes(k))) {
       return { safe: false, threatScore: 1000, reason: `Botnet/CMS Beacon Signature`, isHoneypot: true };
   }
 
   if (path.includes('%00') || search.includes('\0')) return { safe: false, threatScore: 1000, reason: `Null-Byte Injection`, isHoneypot: true };
-  if (BLOCKED_COUNTRIES.has(IP_TO_COUNTRY[ip] || 'UNKNOWN')) return { safe: false, threatScore: 100, reason: `Blocked Geo`, isHoneypot: false };
 
-  if (HONEYPOTS.some(hp => path.includes(hp.toLowerCase()))) {
-    return { safe: false, threatScore: 1000, reason: `Honeypot Access`, isHoneypot: true };
+  // 🟢 ELITA HIMOYA: Regex orqali Honeypot tekshiruvi (obfuscated xujumlarni oldini oladi)
+  if (HONEYPOTS_REGEX.some(regex => regex.test(path))) {
+    console.warn(`🚨 HONEYPOT TRIGGERED: IP ${ip} targeted ${path}`);
+    return { safe: false, threatScore: 1000, reason: `Honeypot Access Triggered`, isHoneypot: true };
   }
 
   let threatScore = 0;
