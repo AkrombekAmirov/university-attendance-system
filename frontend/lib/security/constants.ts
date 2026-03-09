@@ -15,6 +15,13 @@ export const BLOCKED_COUNTRIES = new Set([
   'MD', 'RO', 'BG', 'UA', 'BY', 'AM', 'GE', 'KZ', 'NG', 'KE', 'ZA', 'GH', 'TZ'
 ]);
 
+export const IP_TO_COUNTRY: Record<string, string> = {
+  '147.45.41.25': 'RU',
+  '139.59.136.184': 'IN',
+  '45.155.205.233': 'NL',
+  '128.199.182.55': 'SG'
+};
+
 // 🟢 YANGILANGAN: Honeypots endi yanada qattiq (Regex formatida)
 export const HONEYPOTS_REGEX = [
   /\.env(\.backup|\.dev|\.local|\.prod)?$/i,

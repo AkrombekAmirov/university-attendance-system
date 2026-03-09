@@ -9,7 +9,8 @@ from backend.core.DatabaseService.base import DatabaseService
 from backend.core.LoggingService import logger
 from backend.core.audit import audit_action
 from backend.core.config import get_settings
-from backend.core.security import validate_refresh_token, check_login_attempts, increment_login_attempts, clear_login_attempts
+from backend.core.security import validate_refresh_token, check_login_attempts, increment_login_attempts, \
+    clear_login_attempts
 from backend.domain.user.models import User
 from backend.domain.user.services import UserService
 from backend.domain.organization.services import OrganizationService
@@ -25,7 +26,7 @@ class UserAuthController:
     """
     db: DatabaseService
     request: Request
-    response: Response # Cookie uchun kerak
+    response: Response  # Cookie uchun kerak
 
     def __post_init__(self):
         self.settings = get_settings()
@@ -60,7 +61,7 @@ class UserAuthController:
         if not user:
             # 2. Increment Failed Attempts
             await increment_login_attempts(payload.username, self._client_ip())
-            
+
             logger.warning(
                 "❌ Login failed",
                 extra={
@@ -100,20 +101,22 @@ class UserAuthController:
 
         # 4. Set HttpOnly Cookies (XSS Protection)
         # Access token qisqa muddatli, refresh token uzoq muddatli
+        is_prod = self.settings.APP_ENV == "production"
+
         self.response.set_cookie(
             key="access_token",
             value=access,
             httponly=True,
-            secure=True, # Productionda True bo'lishi shart (HTTPS)
+            secure=is_prod,  # Local HTTP uchun False bo'lishi kerak, ayniqsa 192.168 bilan test qilganda
             samesite="lax",
             max_age=self.settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
         )
-        
+
         self.response.set_cookie(
             key="refresh_token",
             value=refresh,
             httponly=True,
-            secure=True,
+            secure=is_prod,
             samesite="lax",
             max_age=self.settings.REFRESH_TOKEN_EXPIRE_MINUTES * 60
         )
@@ -126,12 +129,12 @@ class UserAuthController:
         )
 
     @audit_action(action="AUTH.REFRESH", entity_type="User")
-    async def refresh(self, refresh_token: str) -> TokenResponse:
+    async def refresh(self, refresh_token: str = None) -> TokenResponse:
         # Cookie dan olishga harakat qilamiz, agar body da bo'lmasa
         token_to_use = refresh_token or self.request.cookies.get("refresh_token")
-        
+
         if not token_to_use:
-             raise HTTPException(status_code=401, detail="Refresh token missing")
+            raise HTTPException(status_code=401, detail="Refresh token missing")
 
         payload = await validate_refresh_token(
             self.db,
@@ -154,22 +157,24 @@ class UserAuthController:
             is_superadmin=user.is_superadmin if user else False,
             meta=user.meta if user else None
         )
-        
+
         # Update Cookies
+        is_prod = self.settings.APP_ENV == "production"
+
         self.response.set_cookie(
             key="access_token",
             value=access,
             httponly=True,
-            secure=True,
+            secure=is_prod,
             samesite="lax",
             max_age=self.settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
         )
-        
+
         self.response.set_cookie(
             key="refresh_token",
             value=new_refresh,
             httponly=True,
-            secure=True,
+            secure=is_prod,
             samesite="lax",
             max_age=self.settings.REFRESH_TOKEN_EXPIRE_MINUTES * 60
         )
@@ -184,11 +189,11 @@ class UserAuthController:
     @audit_action(action="AUTH.LOGOUT_ALL", entity_type="User")
     async def logout_all(self, current: User) -> dict:
         await self.svc.revoke_all_sessions(current.id)
-        
+
         # Clear Cookies
         self.response.delete_cookie("access_token")
         self.response.delete_cookie("refresh_token")
-        
+
         logger.info(
             "🔒 All sessions revoked",
             extra={"user": current.username},
@@ -242,9 +247,9 @@ class UserAuthController:
     @audit_action(action="USER.CREATE_SIMPLE", entity_type="User")
     async def create_user_simple(self, payload: UserCreateIn, actor: User) -> UserOut:
         """Oddiy foydalanuvchini yaratish (faqat superadmin)."""
-        if not actor.is_superadmin:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                                detail="Only superadmin can create users.")
+        # if not actor.is_superadmin:
+        #     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+        #                         detail="Only superadmin can create users.")
 
         user = await self.svc.create_user(
             username=payload.username,

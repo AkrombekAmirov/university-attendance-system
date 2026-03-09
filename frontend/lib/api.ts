@@ -7,15 +7,16 @@ import {
     clearTokens,
 } from "./auth";
 
+// Next.js da NEXT_PUBLIC o'zgaruvchilar 'npm run dev' muhitida kutilmaganda undefined bolmasligi uchun
+// xavfsiz default (http://localhost:8000) berish muhim.
 export const api = axios.create({
-    baseURL: process.env.NEXT_PUBLIC_API_URL || "https://api.davomat.uznpu.uz",
-    withCredentials: false,
+    baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
+    withCredentials: true,
 });
 
-// Inject access token into header
+// Access token is now sent automatically via HttpOnly cookies by the browser.
+// We no longer manually attach the Authorization header from localStorage.
 api.interceptors.request.use((config) => {
-    const token = getAccessToken();
-    if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
 });
 
@@ -33,17 +34,16 @@ async function refreshToken(): Promise<string | null> {
         const refresh = getRefreshToken();
         if (!refresh) throw new Error("No refresh token found");
 
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
         const res = await axios.post(
-            `${process.env.NEXT_PUBLIC_API_URL || "https://api.davomat.uznpu.uz"}/users/auth/refresh`,
-            new URLSearchParams({ refresh_token: refresh }),
+            `${apiUrl}/users/auth/refresh`,
+            {}, // No body needed, refresh token is sent automatically via cookies
             { withCredentials: true }
         );
 
-        const { access_token, refresh_token } = res.data;
-        if (access_token) setAccessToken(access_token);
-        if (refresh_token) setRefreshToken(refresh_token);
-
-        return access_token ?? null;
+        // Tokens are received entirely via Set-Cookie headers now.
+        // We just return a dummy string to signal success to the retry queue
+        return "success";
     } catch {
         clearTokens();
         return null;
@@ -62,9 +62,9 @@ api.interceptors.response.use(
 
         if (error?.response?.status === 401 && !req._retry) {
             req._retry = true;
-            const newToken = await refreshToken();
-            if (newToken) {
-                req.headers.Authorization = `Bearer ${newToken}`;
+            const success = await refreshToken();
+            if (success) {
+                // withCredentials is true, cookies will be resent automatically
                 return api(req);
             }
         }

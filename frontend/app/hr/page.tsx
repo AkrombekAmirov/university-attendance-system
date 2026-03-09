@@ -3,10 +3,24 @@ import {useEffect, useState} from "react";
 import {useRouter} from "next/navigation";
 import dayjs from "dayjs";
 import {motion, AnimatePresence} from "framer-motion";
-import {fetchHrUnitsSummary} from "@/lib/api";
+import {fetchHrUnitsSummary, api} from "@/lib/api";
 import {fetchHrUnits, fetchHrUnitDaily} from "@/lib/api";
-import {Card, CardHeader, CardTitle} from "@/components/ui/card";
+import {unassignUserFromAllPositions} from "@/lib/organization/orgunit";
+import {Card, CardHeader, CardTitle, CardContent} from "@/components/ui/card";
 import {Button} from "@/components/ui/button";
+import {Input} from "@/components/ui/input";
+import {Label} from "@/components/ui/label";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import {toast} from "sonner";
+import {useForm, FormProvider} from "react-hook-form";
+import {z} from "zod";
+import {zodResolver} from "@hookform/resolvers/zod";
 import {
     ArrowLeft,
     Users,
@@ -28,7 +42,9 @@ import {
     Award,
     Zap,
     TrendingDown,
-    Coffee
+    Coffee,
+    X,
+    Plus
 } from "lucide-react";
 /* ================= TYPES ================= */
 // type HrUnit = {
@@ -60,6 +76,224 @@ type HrUnit = {
     lateCount?: number;
     department?: string;
 };
+
+/* ================= SCHEMAS ================= */
+const createUserAndAssignSchema = z.object({
+    username: z.string().min(3, "Kamida 3 ta belgi").max(64),
+    password: z.string().min(8, "Kamida 8 ta belgi"),
+    full_name: z.string().optional(),
+    passport: z.string().optional(),
+    turniked_id: z.string().optional(),
+    position_id: z.string().uuid({message: "Lavozimni tanlang"}),
+});
+
+/* ================= MODALS ================= */
+const ModalWrapper = ({isOpen, onClose, children}: {
+    isOpen: boolean;
+    onClose: () => void;
+    children: React.ReactNode
+}) => (
+    <AnimatePresence>
+        {isOpen && (
+            <>
+                <motion.div
+                    className="fixed inset-0 bg-black/40 z-[60]"
+                    initial={{opacity: 0}}
+                    animate={{opacity: 1}}
+                    exit={{opacity: 0}}
+                    onClick={onClose}
+                />
+                <motion.div
+                    className="fixed inset-0 z-[70] flex items-start justify-center p-4 pt-16 overflow-y-auto sm:pt-24"
+                    initial={{opacity: 0, scale: 0.95}}
+                    animate={{opacity: 1, scale: 1}}
+                    exit={{opacity: 0, scale: 0.95}}
+                >
+                    {children}
+                </motion.div>
+            </>
+        )}
+    </AnimatePresence>
+);
+
+const BaseModal = ({
+                       title,
+                       children,
+                       onClose,
+                       footer,
+                   }: {
+    title: string;
+    children: React.ReactNode;
+    onClose: () => void;
+    footer: React.ReactNode;
+}) => (
+    <Card className="w-full max-w-md shadow-xl rounded-xl overflow-hidden bg-white relative z-[80]">
+        <CardHeader className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white sticky top-0 z-10">
+            <div className="flex justify-between items-center">
+                <CardTitle className="text-lg font-semibold">{title}</CardTitle>
+                <button
+                    type="button"
+                    onClick={onClose}
+                    className="hover:bg-white/20 p-1.5 rounded-full transition-colors"
+                    aria-label="Yopish"
+                >
+                    <X size={18}/>
+                </button>
+            </div>
+        </CardHeader>
+        <CardContent className="pt-4 space-y-4 max-h-[65vh] overflow-y-auto">
+            {children}
+        </CardContent>
+        <div className="px-6 pb-4 bg-white">{footer}</div>
+    </Card>
+);
+
+function HrUserCreateAndAssignModal({
+                                        isOpen,
+                                        onClose,
+                                        unitId,
+                                        onSuccess
+                                    }: {
+    isOpen: boolean;
+    onClose: () => void;
+    unitId: string | undefined;
+    onSuccess: () => void;
+}) {
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [positions, setPositions] = useState<any[]>([]);
+
+    const form = useForm({resolver: zodResolver(createUserAndAssignSchema), defaultValues: {
+        username: "", password: "", full_name: "", passport: "", turniked_id: "", position_id: ""
+    }});
+
+    useEffect(() => {
+        if (isOpen && unitId) {
+            form.reset();
+            // Fetch available positions for this unit
+            api.get(`/organization/positions/by-unit/${unitId}`)
+                .then((res: any) => setPositions(res.data || []))
+                .catch((e: any) => {
+                    toast.error("Lavozimlarni yuklashda xatolik");
+                    setPositions([]);
+                });
+        }
+    }, [isOpen, unitId, form]);
+
+    const onSubmit = async (data: any) => {
+        setIsSubmitting(true);
+        try {
+            // 1. Create User
+            const createFormData = new FormData();
+            createFormData.append("username", data.username);
+            createFormData.append("password", data.password);
+            if (data.full_name) createFormData.append("full_name", data.full_name);
+            if (data.passport) createFormData.append("passport", data.passport);
+            if (data.turniked_id) createFormData.append("turniket_id", data.turniked_id);
+
+            const userRes = await api.post("/users/create_simple", createFormData);
+            const userId = userRes.data.id;
+
+            // 2. Assign Position
+            const assignFormData = new FormData();
+            assignFormData.append("user_id", userId);
+            assignFormData.append("position_id", data.position_id);
+            assignFormData.append("status", "ACTIVE");
+
+            await api.post("/organization/assignments/create", assignFormData);
+
+            toast.success("Yangi xodim muvaffaqiyatli yaratildi va biriktirildi!");
+            onSuccess();
+            onClose();
+        } catch (e: any) {
+            const data = e?.response?.data ?? e?.data ?? e;
+            const detail = data?.detail ? (typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)) : "So'rovda xatolik yuz berdi.";
+            toast.error(detail);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <ModalWrapper isOpen={isOpen} onClose={onClose}>
+            <FormProvider {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="w-full">
+                    <BaseModal
+                        title="Yangi xodim qo'shish"
+                        onClose={onClose}
+                        footer={
+                            <div className="flex gap-2">
+                                <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
+                                    Bekor qilish
+                                </Button>
+                                <Button type="submit" disabled={isSubmitting}
+                                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white">
+                                    {isSubmitting ? "Saqlanmoqda..." : "Saqlash"}
+                                </Button>
+                            </div>
+                        }
+                    >
+                        <div className="space-y-4">
+                            <div>
+                                <Label>Username *</Label>
+                                <Input {...form.register("username")} placeholder="Username" />
+                                {form.formState.errors.username && <p className="text-red-500 text-sm">{String(form.formState.errors.username.message)}</p>}
+                            </div>
+                            <div>
+                                <Label>Parol *</Label>
+                                <Input type="password" {...form.register("password")} placeholder="Kamida 8 ta belgi" />
+                                {form.formState.errors.password && <p className="text-red-500 text-sm">{String(form.formState.errors.password.message)}</p>}
+                            </div>
+                            <div>
+                                <Label>F.I.SH *</Label>
+                                <Input {...form.register("full_name")} placeholder="To'liq ism familiya" />
+                            </div>
+                            <div>
+                                <Label>Passport (ixtiyoriy)</Label>
+                                <Input {...form.register("passport")} placeholder="AA1234567" />
+                            </div>
+                            <div>
+                                <Label>Turniket ID (ixtiyoriy)</Label>
+                                <Input {...form.register("turniked_id")} placeholder="12345" />
+                            </div>
+
+                            {/* ============================================================== */}
+                            {/* 🚀 TUZATILGAN VA OPTIMALLASHTIRILGAN LAVOZIM TANLASH QISMI */}
+                            {/* ============================================================== */}
+                            <div className="relative">
+                                <Label>Lavozim *</Label>
+                                <Select
+                                    onValueChange={(v) => form.setValue("position_id", v)}
+                                    value={form.watch("position_id") || undefined}
+                                >
+                                    <SelectTrigger className="bg-white border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all">
+                                        <SelectValue placeholder={positions.length === 0 ? "Lavozimlar yozilmadi" : "Lavozim tanlang..."} />
+                                    </SelectTrigger>
+
+                                    {/* z-[100] bilan modalning eng ustiga olib chiqildi va go'zallashtirildi */}
+                                    <SelectContent className="z-[100] max-h-[250px] bg-white shadow-2xl border border-gray-100 rounded-xl">
+                                        {positions.map((pos) => (
+                                            <SelectItem
+                                                key={pos.id}
+                                                value={pos.id}
+                                                className="cursor-pointer py-2.5 px-3 font-medium text-gray-700 transition-colors hover:bg-indigo-50 focus:bg-indigo-100 focus:text-indigo-900 rounded-lg mx-1 my-0.5"
+                                            >
+                                                {pos.title}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                {form.formState.errors.position_id && <p className="text-red-500 text-sm mt-1">{String(form.formState.errors.position_id.message)}</p>}
+                            </div>
+                            {/* ============================================================== */}
+
+                        </div>
+                    </BaseModal>
+                </form>
+            </FormProvider>
+        </ModalWrapper>
+    );
+}
+
 /* ================= LOADING TIPS ================= */
 const loadingTips = [
     {icon: "🎯", text: "90% va undan yuqori davomat - a'lo ko'rsatkich!"},
@@ -352,6 +586,7 @@ export default function HrDailyPage() {
     const [searchQuery, setSearchQuery] = useState("");
     const [filterType, setFilterType] = useState<"all" | "problem" | "good">("all");
     const [sortBy, setSortBy] = useState<"name" | "rate" | "absent">("rate");
+    const [isCreateOpen, setIsCreateOpen] = useState(false);
     /* ================= INITIAL LOAD ================= */
     useEffect(() => {
         (async () => {
@@ -424,6 +659,46 @@ export default function HrDailyPage() {
         setSelectedUnit(null);
         setDaily([]);
     }
+
+    const handleUnassignUser = async (user: DailyRow) => {
+        if (!user.position) {
+            toast.info("Bu foydalanuvchi allaqachon lavozimsiz");
+            return;
+        }
+
+        const ok = window.confirm(
+            `${user.full_name} lavozimdan to‘liq ozod etilsinmi?`
+        );
+        if (!ok) return;
+
+        try {
+            await unassignUserFromAllPositions({
+                user_id: user.user_id,
+            });
+
+            toast.success("Foydalanuvchi lavozimdan to‘liq ozod etildi");
+
+            // Jadvalni yangilash
+            if (selectedUnit) {
+                loadDaily(selectedUnit, selectedDate);
+
+                // Asosiy kartochkalarni ham yangilash uchun statistikani qayta yuklaymiz
+                const summary = await fetchHrUnitsSummary(selectedDate);
+                const mapped: HrUnit[] = summary.map((u: any) => ({
+                    id: u.unit_id,
+                    name: u.name,
+                    employeeCount: u.employeeCount,
+                    presentCount: u.presentCount,
+                    absentCount: u.absentCount,
+                    lateCount: u.lateCount,
+                    attendanceRate: u.attendanceRate,
+                }));
+                setUnits(mapped);
+            }
+        } catch (e: any) {
+            toast.error(e.message || "Xatolik yuz berdi");
+        }
+    };
 
     function statusColor(item: DailyRow) {
         if (!item.first_entry)
@@ -798,7 +1073,14 @@ bg-white/60 p-4 rounded-xl shadow border
                                 {selectedUnit.name}
                             </h3>
                             <div className="flex gap-3 items-center">
-                                <Calendar className="text-indigo-600"/>
+                                <Button
+                                    className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
+                                    onClick={() => setIsCreateOpen(true)}
+                                >
+                                    <Plus size={16}/>
+                                    <span className="hidden sm:inline">Yangi xodim qo'shish</span>
+                                </Button>
+                                <Calendar className="text-indigo-600 hidden sm:block"/>
                                 <input
                                     type="date"
                                     value={selectedDate}
@@ -830,6 +1112,7 @@ shadow border
                                     <th className="p-3 text-center">Kirish turniketi</th>
                                     <th className="p-3 text-center">Chiqish</th>
                                     <th className="p-3 text-center">Chiqish turniketi</th>
+                                    <th className="p-3 text-center">Harakatlar</th>
                                 </tr>
                                 </thead>
                                 <tbody>
@@ -871,6 +1154,21 @@ shadow border
                                                 ? item.last_device || "-"
                                                 : "-"}
                                         </td>
+                                        <td className="p-3">
+                                            <div className="flex gap-2 justify-end">
+                                                {/* 🔓 UNASSIGN BUTTON */}
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    disabled={!item.position}
+                                                    onClick={() => handleUnassignUser(item)}
+                                                    className="border-red-300 text-red-600 hover:bg-red-50"
+                                                >
+                                                    <X size={14} className="mr-1"/>
+                                                    Ozod etish
+                                                </Button>
+                                            </div>
+                                        </td>
                                     </tr>
                                 ))}
                                 </tbody>
@@ -878,7 +1176,33 @@ shadow border
                         </div>
                     </motion.div>
                 )}
+
             </AnimatePresence>
+
+            {selectedUnit && (
+                <HrUserCreateAndAssignModal
+                    isOpen={isCreateOpen}
+                    onClose={() => setIsCreateOpen(false)}
+                    unitId={selectedUnit.id}
+                    onSuccess={() => {
+                        loadDaily(selectedUnit, selectedDate);
+
+                        // Statistikani yangilash
+                        fetchHrUnitsSummary(selectedDate).then(summary => {
+                            const mapped: HrUnit[] = summary.map((u: any) => ({
+                                id: u.unit_id,
+                                name: u.name,
+                                employeeCount: u.employeeCount,
+                                presentCount: u.presentCount,
+                                absentCount: u.absentCount,
+                                lateCount: u.lateCount,
+                                attendanceRate: u.attendanceRate,
+                            }));
+                            setUnits(mapped);
+                        });
+                    }}
+                />
+            )}
         </motion.div>
     );
 }

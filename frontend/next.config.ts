@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 // 🛡️ CSP (Content Security Policy) qoidalari
 // XSS (Cross-Site Scripting) va ma'lumotlarni o'g'irlash hujumlariga qarshi eng kuchli qurol.
@@ -17,6 +18,7 @@ const ContentSecurityPolicy = `
 
 const nextConfig: NextConfig = {
     output: "standalone",
+    outputFileTracingRoot: path.join(__dirname, '../'),
 
     // 🛡️ Server ma'lumotlarini yashirish (X-Powered-By ni olib tashlaydi)
     poweredByHeader: false,

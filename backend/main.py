@@ -60,9 +60,9 @@ app.add_middleware(
                   or [
                       "https://davomat.uznpu.uz",
                       "https://api.davomat.uznpu.uz",
-                      "http://localhost:8000/docs",
-                      "http://localhost:3000/docs"
+                      "http://localhost:3000"
                   ],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],

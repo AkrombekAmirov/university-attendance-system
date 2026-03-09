@@ -14,12 +14,13 @@ import { isNightLockdownActive, isAllowedDuringNight } from './lib/security/curf
 const rateLimiter = new AdaptiveRateLimiter();
 
 function applySecurityHeaders(response: NextResponse, threatScore: number) {
-  const cspHeader = `
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const cspHeader = `
     default-src 'self';
     script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com;
     style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
     img-src 'self' data: https:; font-src 'self' data: https:;
-    connect-src 'self' https://api.davomat.uznpu.uz http://localhost:8000;
+    connect-src 'self' ${apiUrl};
     worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';
     frame-ancestors 'none'; block-all-mixed-content; upgrade-insecure-requests;
   `.replace(/\s{2,}/g, ' ').trim();

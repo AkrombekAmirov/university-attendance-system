@@ -2,8 +2,10 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from typing import Optional, List, Dict
 from calendar import monthrange
+from cachetools import TTLCache
 from sqlmodel import select
 from uuid import UUID
+from cachetools import TTLCache
 
 from backend.domain.user.models import User
 
@@ -34,66 +36,43 @@ class AttendanceEventRepository(BaseRepository[AttendanceEvent]):
         self.org_repo = OrganizationRepository(db)
         self.users = UserRepository(db)
         self.device_repo = DeviceRepository(db)
-        self._user_cache = {}
-        self._device_cache = {}
-        self._org_cache = {}
-        self._cache_ttl = timedelta(hours=1)
 
-    def _get_from_cache(self, cache_dict, key):
-        item = cache_dict.get(key)
-        if not item:
-            return None
-
-        value, expires_at = item
-
-        if expires_at < datetime.utcnow():
-            cache_dict.pop(key, None)
-            return None
-
-        return value
-
-    def _set_cache(self, cache_dict, key, value):
-        cache_dict[key] = (
-            value,
-            datetime.utcnow() + self._cache_ttl
-        )
+        # 🟢 FIX: O(1) Memory leak prevention TTLCache
+        # Agar 1 soat foydalanilmasa o'chib ketadi, maksimal hajmi eng muhimi chegaralangan
+        self._user_cache = TTLCache(maxsize=10000, ttl=3600)
+        self._device_cache = TTLCache(maxsize=1000, ttl=3600)
+        self._org_cache = TTLCache(maxsize=10000, ttl=3600)
 
     async def _get_user_cached(self, turniked_id):
-
-        cached_user = self._get_from_cache(self._user_cache, turniked_id)
+        cached_user = self._user_cache.get(turniked_id)
         if cached_user:
             return cached_user
 
         user = await self.users.get_by_user_turniked_id(turniked_id)
-
         if user:
-            self._set_cache(self._user_cache, turniked_id, user)
+            self._user_cache[turniked_id] = user
 
         return user
 
     async def _get_device_cached(self, device_id):
-
-        cached_device = self._get_from_cache(self._device_cache, device_id)
+        cached_device = self._device_cache.get(device_id)
         if cached_device:
             return cached_device
 
         device = await self.device_repo.get_by_id(device_id)
-
         if device:
-            self._set_cache(self._device_cache, device_id, device)
+            self._device_cache[device_id] = device
 
         return device
 
     async def _get_org_cached(self, user_id):
-
-        cached_org = self._get_from_cache(self._org_cache, user_id)
+        cached_org = self._org_cache.get(user_id)
         if cached_org:
             return cached_org
 
         org_unit_id = await self.org_repo.get_org_unit_by_user_id_(user_id)
-
         if org_unit_id:
-            self._set_cache(self._org_cache, user_id, org_unit_id)
+            self._org_cache[user_id] = org_unit_id
 
         return org_unit_id
 

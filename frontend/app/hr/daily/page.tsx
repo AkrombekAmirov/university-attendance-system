@@ -6,15 +6,18 @@ import dayjs from "dayjs";
 import {motion, AnimatePresence} from "framer-motion";
 
 import {fetchHrUnits, fetchHrUnitDaily} from "@/lib/api";
+import {unassignUserFromAllPositions} from "@/lib/organization/orgunit";
 import {Card, CardHeader, CardTitle} from "@/components/ui/card";
 import {Button} from "@/components/ui/button";
+import {toast} from "sonner";
 
 import {
     ArrowLeft,
     Users,
     Clock,
     Calendar,
-    Building2
+    Building2,
+    X
 } from "lucide-react";
 
 /* ================= TYPES ================= */
@@ -72,6 +75,33 @@ export default function HrDailyPage() {
         setSelectedUnit(null);
         setDaily([]);
     }
+
+    const handleUnassignUser = async (user: DailyRow) => {
+        if (!user.position) {
+            toast.info("Bu foydalanuvchi allaqachon lavozimsiz");
+            return;
+        }
+
+        const ok = window.confirm(
+            `${user.full_name} lavozimdan to‘liq ozod etilsinmi?`
+        );
+        if (!ok) return;
+
+        try {
+            await unassignUserFromAllPositions({
+                user_id: user.user_id,
+            });
+
+            toast.success("Foydalanuvchi lavozimdan to‘liq ozod etildi");
+
+            // Jadvalni yangilash
+            if (selectedUnit) {
+                loadDaily(selectedUnit, selectedDate);
+            }
+        } catch (e: any) {
+            toast.error(e.message || "Xatolik yuz berdi");
+        }
+    };
 
     function statusColor(item: DailyRow) {
         if (!item.first_entry)
@@ -228,6 +258,7 @@ export default function HrDailyPage() {
                                     <th className="p-3 text-center">Kirish turniketi</th>
                                     <th className="p-3 text-center">Chiqish</th>
                                     <th className="p-3 text-center">Chiqish turniketi</th>
+                                    <th className="p-3 text-center">Harakatlar</th>
                                 </tr>
                                 </thead>
 
@@ -269,6 +300,22 @@ export default function HrDailyPage() {
                                             {safeExit(item.first_entry, item.last_exit)
                                                 ? item.last_device || "-"
                                                 : "-"}
+                                        </td>
+
+                                        <td className="p-3">
+                                            <div className="flex gap-2 justify-end">
+                                                {/* 🔓 UNASSIGN BUTTON */}
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    disabled={!item.position}
+                                                    onClick={() => handleUnassignUser(item)}
+                                                    className="border-red-300 text-red-600 hover:bg-red-50"
+                                                >
+                                                    <X size={14} className="mr-1"/>
+                                                    Ozod etish
+                                                </Button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
