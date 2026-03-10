@@ -46,17 +46,8 @@ import {
     X,
     Plus
 } from "lucide-react";
+
 /* ================= TYPES ================= */
-// type HrUnit = {
-//     id: string;
-//     name: string;
-//     employeeCount?: number;
-//     department?: string;
-//     attendanceRate?: number;
-//     presentCount?: number;
-//     absentCount?: number;
-//     lateCount?: number;
-// };
 type DailyRow = {
     user_id: string;
     full_name: string;
@@ -256,9 +247,6 @@ function HrUserCreateAndAssignModal({
                                 <Input {...form.register("turniked_id")} placeholder="12345" />
                             </div>
 
-                            {/* ============================================================== */}
-                            {/* 🚀 TUZATILGAN VA OPTIMALLASHTIRILGAN LAVOZIM TANLASH QISMI */}
-                            {/* ============================================================== */}
                             <div className="relative">
                                 <Label>Lavozim *</Label>
                                 <Select
@@ -269,7 +257,6 @@ function HrUserCreateAndAssignModal({
                                         <SelectValue placeholder={positions.length === 0 ? "Lavozimlar yozilmadi" : "Lavozim tanlang..."} />
                                     </SelectTrigger>
 
-                                    {/* z-[100] bilan modalning eng ustiga olib chiqildi va go'zallashtirildi */}
                                     <SelectContent className="z-[100] max-h-[250px] bg-white shadow-2xl border border-gray-100 rounded-xl">
                                         {positions.map((pos) => (
                                             <SelectItem
@@ -284,7 +271,6 @@ function HrUserCreateAndAssignModal({
                                 </Select>
                                 {form.formState.errors.position_id && <p className="text-red-500 text-sm mt-1">{String(form.formState.errors.position_id.message)}</p>}
                             </div>
-                            {/* ============================================================== */}
 
                         </div>
                     </BaseModal>
@@ -326,18 +312,15 @@ function CreativeLoadingScreen() {
         "Ranglar sozlanmoqda... 🎨",
     ];
     useEffect(() => {
-// Tip rotation
         const tipInterval = setInterval(() => {
             setCurrentTip((prev) => (prev + 1) % loadingTips.length);
         }, 3000);
-// Progress animation
         const progressInterval = setInterval(() => {
             setProgress((prev) => {
                 if (prev >= 95) return 95; // Max at 95 until real data loads
                 return prev + Math.random() * 10;
             });
         }, 500);
-// Fun fact rotation
         const factInterval = setInterval(() => {
             setFunFact((prev) => (prev + 1) % funFacts.length);
         }, 2500);
@@ -355,13 +338,10 @@ function CreativeLoadingScreen() {
                 animate={{opacity: 1, scale: 1}}
                 className="max-w-2xl w-full"
             >
-                {/* Main Loading Card */}
                 <div
                     className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/50 overflow-hidden">
-                    {/* Header with Animation */}
                     <div
                         className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 p-8 text-center relative overflow-hidden">
-                        {/* Animated background circles */}
                         <motion.div
                             className="absolute inset-0 opacity-20"
                             animate={{
@@ -391,9 +371,7 @@ function CreativeLoadingScreen() {
                             {funFacts[funFact]}
                         </p>
                     </div>
-                    {/* Content */}
                     <div className="p-8 space-y-6">
-                        {/* Animated Progress Bar */}
                         <div className="space-y-3">
                             <div className="flex items-center justify-between text-sm">
                                 <span className="text-gray-600 font-medium">Yuklanmoqda...</span>
@@ -406,7 +384,6 @@ function CreativeLoadingScreen() {
                                     animate={{width: `${progress}%`}}
                                     transition={{duration: 0.5, ease: "easeOut"}}
                                 />
-                                {/* Shimmer effect */}
                                 <motion.div
                                     className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent"
                                     animate={{x: ["-100%", "200%"]}}
@@ -414,7 +391,6 @@ function CreativeLoadingScreen() {
                                 />
                             </div>
                         </div>
-                        {/* Stats Grid Animation */}
                         <div className="grid grid-cols-3 gap-4">
                             {[
                                 {icon: Building2, label: "Bo'limlar", color: "indigo"},
@@ -439,7 +415,6 @@ function CreativeLoadingScreen() {
                                 </motion.div>
                             ))}
                         </div>
-                        {/* Rotating Tips */}
                         <AnimatePresence mode="wait">
                             <motion.div
                                 key={currentTip}
@@ -463,7 +438,6 @@ function CreativeLoadingScreen() {
                                 </div>
                             </motion.div>
                         </AnimatePresence>
-                        {/* Animated Loading Indicators */}
                         <div className="flex items-center justify-center gap-3">
                             {[0, 1, 2, 3, 4].map((i) => (
                                 <motion.div
@@ -481,7 +455,6 @@ function CreativeLoadingScreen() {
                                 />
                             ))}
                         </div>
-                        {/* Bottom Info */}
                         <div className="text-center text-sm text-gray-500 pt-4 border-t border-gray-100">
                             <motion.p
                                 animate={{opacity: [0.5, 1, 0.5]}}
@@ -492,7 +465,6 @@ function CreativeLoadingScreen() {
                         </div>
                     </div>
                 </div>
-                {/* Extra floating elements */}
                 <div className="mt-6 flex items-center justify-center gap-4">
                     {[Award, Target, TrendingUp].map((Icon, idx) => (
                         <motion.div
@@ -582,18 +554,17 @@ export default function HrDailyPage() {
     const [selectedDate, setSelectedDate] = useState(
         dayjs().format("YYYY-MM-DD")
     );
-// Filtrlash holatlari
     const [searchQuery, setSearchQuery] = useState("");
     const [filterType, setFilterType] = useState<"all" | "problem" | "good">("all");
     const [sortBy, setSortBy] = useState<"name" | "rate" | "absent">("rate");
     const [isCreateOpen, setIsCreateOpen] = useState(false);
+
     /* ================= INITIAL LOAD ================= */
     useEffect(() => {
         (async () => {
             try {
                 setLoading(true);
                 const summary = await fetchHrUnitsSummary(selectedDate);
-// backend → frontend moslash
                 const mapped: HrUnit[] = summary.map((u: any) => ({
                     id: u.unit_id,
                     name: u.name,
@@ -612,23 +583,21 @@ export default function HrDailyPage() {
             }
         })();
     }, [selectedDate]);
+
     /* ================= FILTER AND SORT ================= */
     useEffect(() => {
         let result = [...units];
-// Qidiruv
         if (searchQuery.trim()) {
             result = result.filter(unit =>
                 unit.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 unit.department?.toLowerCase().includes(searchQuery.toLowerCase())
             );
         }
-// Filtrlash
         if (filterType === "problem") {
             result = result.filter(unit => (unit.attendanceRate || 0) < 80);
         } else if (filterType === "good") {
             result = result.filter(unit => (unit.attendanceRate || 0) >= 80);
         }
-// Sortirovka
         result.sort((a, b) => {
             if (sortBy === "rate") {
                 return (b.attendanceRate || 0) - (a.attendanceRate || 0);
@@ -678,11 +647,8 @@ export default function HrDailyPage() {
 
             toast.success("Foydalanuvchi lavozimdan to‘liq ozod etildi");
 
-            // Jadvalni yangilash
             if (selectedUnit) {
                 loadDaily(selectedUnit, selectedDate);
-
-                // Asosiy kartochkalarni ham yangilash uchun statistikani qayta yuklaymiz
                 const summary = await fetchHrUnitsSummary(selectedDate);
                 const mapped: HrUnit[] = summary.map((u: any) => ({
                     id: u.unit_id,
@@ -717,7 +683,6 @@ export default function HrDailyPage() {
         return dayjs(last).format("HH:mm");
     }
 
-// Bo'lim uchun rang tanlash (YUMSHOQ RANGLAR)
     function getUnitColor(rate: number) {
         if (rate >= 90) return "from-blue-50 to-blue-100 border-blue-200 hover:border-blue-300";
         if (rate >= 80) return "from-indigo-50 to-indigo-100 border-indigo-200 hover:border-indigo-300";
@@ -725,7 +690,6 @@ export default function HrDailyPage() {
         return "from-pink-50 to-pink-100 border-pink-200 hover:border-pink-300";
     }
 
-// Foiz uchun progress rangi
     function getProgressColor(rate: number) {
         if (rate >= 90) return "bg-gradient-to-r from-blue-500 to-blue-600";
         if (rate >= 80) return "bg-gradient-to-r from-indigo-500 to-indigo-600";
@@ -733,10 +697,10 @@ export default function HrDailyPage() {
         return "bg-gradient-to-r from-pink-500 to-pink-600";
     }
 
-// SHOW CREATIVE LOADING SCREEN
     if (loading || loadingUnitsData) {
         return <CreativeLoadingScreen/>;
     }
+
     /* ================= RENDER ================= */
     return (
         <motion.div
@@ -924,7 +888,6 @@ outline-none transition-all text-sm
                                     {/* DATE PICKER — SUMMARY UCHUN */}
                                     {!selectedUnit && (
                                         <div className="ml-auto flex items-center gap-2">
-                                            {/*<Calendar className="w-4 h-4 text-indigo-600"/>*/}
                                             <input
                                                 type="date"
                                                 value={selectedDate}
@@ -971,9 +934,6 @@ outline-none transition-all text-sm
                                                     {/* HEADER - TO'LIQ NOM BILAN */}
                                                     <div className="flex items-start justify-between gap-3">
                                                         <div className="flex items-start gap-2.5 flex-1 min-w-0">
-                                                            {/*<div className="p-2 bg-white/70 rounded-lg">*/}
-                                                            {/*    <Building2 className="w-5 h-5 text-gray-700"/>*/}
-                                                            {/*</div>*/}
                                                             <div className="min-w-0">
                                                                 <CardTitle
                                                                     className="text-base font-bold text-gray-800">
@@ -987,17 +947,6 @@ outline-none transition-all text-sm
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    {/* FOIZ KURSATGICH - PASTDA */}
-                                                    {/*<div className="flex items-center justify-end mt-2">*/}
-                                                    {/*<span className={`*/}
-                                                    {/*px-3 py-1.5 rounded-lg font-bold text-base whitespace-nowrap*/}
-                                                    {/*${rate >= 90 ? 'bg-blue-100 text-blue-700' :*/}
-                                                    {/*    rate >= 80 ? 'bg-indigo-100 text-indigo-700' :*/}
-                                                    {/*        rate >= 70 ? 'bg-purple-100 text-purple-700' :*/}
-                                                    {/*            'bg-pink-100 text-pink-700'}`}>*/}
-                                                    {/*{rate}%*/}
-                                                    {/*</span>*/}
-                                                    {/*</div>*/}
                                                     {/* EMPLOYEE COUNT - KATTAROQ SHRIFT */}
                                                     <div
                                                         className="flex items-center justify-between pt-3 border-t border-white/70">
@@ -1073,6 +1022,16 @@ bg-white/60 p-4 rounded-xl shadow border
                                 {selectedUnit.name}
                             </h3>
                             <div className="flex gap-3 items-center">
+                                {/* OYLIK KO'RISH TUGMASI QO'SHILDI */}
+                                <Button
+                                    variant="outline"
+                                    className="border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 gap-2"
+                                    onClick={() => router.push(`/hr/monthly?unit_id=${selectedUnit.id}&unit_name=${encodeURIComponent(selectedUnit.name)}`)}
+                                >
+                                    <Calendar size={16}/>
+                                    <span className="hidden sm:inline">Oylik ko'rish</span>
+                                </Button>
+
                                 <Button
                                     className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
                                     onClick={() => setIsCreateOpen(true)}

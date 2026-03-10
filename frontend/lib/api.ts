@@ -122,6 +122,16 @@ export async function fetchHrUnitDaily(
     });
     return res.data;
 }
+export async function fetchHrUnitMonthlyDetailed(
+    unit_id: string,
+    year: number,
+    month: number
+) {
+    const res = await api.get("/turniked/attendance/unit/monthly/detailed", {
+        params: { unit_id, year, month },
+    });
+    return res.data;
+}
 // HR ANALYTICS API (NEW)
 export async function fetchHrUnitsSummary(day: string) {
     const res = await api.get("/hr/units/summary", {
