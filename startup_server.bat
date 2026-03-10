@@ -27,23 +27,29 @@ echo.
 echo [*] Backend Service (Uvicorn 4x Workers) ishga tushirilmoqda...
 start "UAS Backend [Uvicorn]" /MIN cmd /c "_start_uvicorn.bat"
 
-:: Bazaga ulanishi uchun 5 soniya taymer
+:: =====================================================================================
+:: 3.1. Turniket Service (Event Listener) ishga tushirish
+:: =====================================================================================
+echo [*] Turniket Service (Hardware Event Listener) ishga tushirilmoqda...
+start "UAS Turniket [Listener]" /MIN cmd /c "_start_turniked.bat"
+
+:: Xizmatlar barqarorlashishi va bazaga ulanishi uchun 5 soniya taymer
 timeout /t 5 >nul
 
 :: =====================================================================================
-:: 4. Frontend (Next.js Standalone Production) ishga tushirish
+:: 4. Frontend (Next.js Production) ishga tushirish
 :: =====================================================================================
-echo [*] Frontend Service (Next.js Standalone) ishga tushirilmoqda...
+echo [*] Frontend Service (Next.js) ishga tushirilmoqda...
 
-:: Frontend tekshiruvi: Agar Next.js standalone server bo'lmasa, qayta build qilamiz
-if not exist "frontend\.next\standalone\server.js" (
-    echo [*] Standalone build topilmadi. Frontend toza holatda o'rnatilmoqda va build qilinmoqda...
+:: Frontend tekshiruvi: Agar Next.js build qilinmagan bo'lsa, uni build qilamiz
+if not exist "frontend\.next\BUILD_ID" (
+    echo [*] Build topilmadi. Frontend toza holatda o'rnatilmoqda va build qilinmoqda...
     cd frontend
     call npm install
-    
+
     echo [*] React2Shell RCE xavfsizlik patchi o'rnatilmoqda...
     call npx fix-react2shell-next
-    
+
     echo [*] RCE dan himoyalangan xavfsiz build boshlanmoqda...
     set NEXT_PUBLIC_API_URL=https://api.davomat.uznpu.uz
     call npm run build
@@ -57,8 +63,9 @@ echo ===================================================================
 echo [SUCCESS] TIZIM XAVFSIZ VA BARQAROR (PRODUCTION) REJIMDA ISHGA TUSHTI!
 echo ===================================================================
 echo [I] Backend  : 0.0.0.0:8000 (4 ta Worker)
-echo [I] Frontend : 0.0.0.0:3000 (STANDALONE NODE SERVER)
-echo [I] Loglar   : "logs\backend_prod.log" va "logs\frontend_prod.log" fayllariga yozilmoqda.
+echo [I] Turniket : Active (Hardware Event Listener)
+echo [I] Frontend : 0.0.0.0:3000 (NPM START REJIMI)
+echo [I] Loglar   : "logs\" papkasida yozilmoqda.
 echo.
 echo Tizim orqa fonda xavfsiz holda ishlashni davom ettiradi. Oynani yopsangiz ham bo'ladi.
 timeout /t 10 >nul

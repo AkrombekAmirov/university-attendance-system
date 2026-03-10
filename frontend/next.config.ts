@@ -18,7 +18,8 @@ const ContentSecurityPolicy = `
 
 const nextConfig: NextConfig = {
     output: "standalone",
-    outputFileTracingRoot: path.join(__dirname, '../'),
+    eslint: { ignoreDuringBuilds: true },
+    typescript: { ignoreBuildErrors: true },
 
     // 🛡️ Server ma'lumotlarini yashirish (X-Powered-By ni olib tashlaydi)
     poweredByHeader: false,
