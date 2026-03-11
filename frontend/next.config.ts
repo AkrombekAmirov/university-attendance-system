@@ -49,6 +49,7 @@ const nextConfig: NextConfig = {
     // 'allowedDevOrigins' qoidasi aynan shu yerda (experimental.serverActions) yozilishi shart.
     experimental: {
         serverActions: {
+            bodySizeLimit: '2mb', // Massive RCE buffer qariyb mumkin emas
             allowedOrigins: [
                 "davomat.uznpu.uz",
                 "api.davomat.uznpu.uz",

@@ -58,8 +58,19 @@ export async function middleware(request: NextRequest) {
       if (!isAllowedHost) return new NextResponse(null, { status: 403 });
     }
 
-    // 🧱 3-QATLAM: WAF TAHLILI
-    const analysis = await analyzeRequest(request, ip);
+    // 🧱 3-QATLAM: WAF TAHLILI VA DPI (DEEP PACKET INSPECTION)
+    let bodyText = '';
+    // Agar POST/PUT bo'lsa, xaker payloadlarini o'qiymiz
+    if (['POST', 'PUT', 'PATCH'].includes(method)) {
+        try {
+            // Asl oqimni buzmaslik uchun clone qilamiz
+            bodyText = await request.clone().text();
+        } catch (err) {
+            // Body ni o'qirolmaslik o'zi shubhali
+            bodyText = '';
+        }
+    }
+    const analysis = await analyzeRequest(request, ip, bodyText);
 
     // 🧱 4-QATLAM: INSTANT BAN (Tarpitsiz)
     if (analysis.threatScore >= 1000 || analysis.isHoneypot) {

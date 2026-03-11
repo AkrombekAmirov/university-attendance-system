@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 import { ALLOWED_METHODS, BLOCKED_COUNTRIES, HONEYPOTS_REGEX, IP_TO_COUNTRY, MALICIOUS_IPS, PATTERNS } from './constants';
 import { analyzeBase64Entropy, deepDecode } from './crypto';
 
-export async function analyzeRequest(request: NextRequest, ip: string): Promise<{ safe: boolean; threatScore: number; reason: string; isHoneypot: boolean }> {
+export async function analyzeRequest(request: NextRequest, ip: string, bodyText: string = ''): Promise<{ safe: boolean; threatScore: number; reason: string; isHoneypot: boolean }> {
   let url;
   let path = '';
   let search = '';
@@ -47,7 +47,7 @@ export async function analyzeRequest(request: NextRequest, ip: string): Promise<
       return { safe: false, threatScore: 1000, reason: `Botnet/CMS Beacon Signature`, isHoneypot: true };
   }
 
-  if (path.includes('%00') || search.includes('\0')) return { safe: false, threatScore: 1000, reason: `Null-Byte Injection`, isHoneypot: true };
+  if (path.includes('%00') || search.includes('\0') || bodyText.includes('\0')) return { safe: false, threatScore: 1000, reason: `Null-Byte Injection`, isHoneypot: true };
 
   // 🟢 ELITA HIMOYA: Regex orqali Honeypot tekshiruvi (obfuscated xujumlarni oldini oladi)
   if (HONEYPOTS_REGEX.some(regex => regex.test(path))) {
@@ -59,7 +59,8 @@ export async function analyzeRequest(request: NextRequest, ip: string): Promise<
   if (url.href.length > 1024) threatScore += 50;
   if (search.length > 512) threatScore += 50;
 
-  let combinedPayload = `${path} | ${search} | `;
+  // 😎 DPI (DEEP PACKET INSPECTION): Parol obyekti yoki POST body si to'liq buffer formatida xujum qidiriqlariga o'raladi.
+  let combinedPayload = `${path} | ${search} | ${bodyText} | `;
   request.headers.forEach((value, key) => {
       if (key.toLowerCase() !== 'cookie') combinedPayload += `${key}:${value} | `;
   });

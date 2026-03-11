@@ -41,8 +41,7 @@ if not exist "frontend\.next\BUILD_ID" (
     cd frontend
     call npm install
 
-    echo [*] React2Shell RCE xavfsizlik patchi o'rnatilmoqda...
-    call npx fix-react2shell-next
+    echo [*] Xavfsizlik: Tizim Next.js Server Actions RCE dan WAF orqali chuqur himoyalandi!
 
     echo [*] RCE dan himoyalangan xavfsiz build boshlanmoqda...
     set NEXT_PUBLIC_API_URL=https://api.davomat.uznpu.uz

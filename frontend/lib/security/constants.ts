@@ -51,6 +51,9 @@ export const PATTERNS = {
     /;[\s]*(sh|bash|zsh|dash|ksh|nc|wget|curl|python|perl|ruby|php|node)/i,
     /&[\s]*(sh|bash|zsh|dash|ksh|nc|wget|curl)/i, /\|[\s]*(sh|bash|zsh|dash|ksh|nc|wget|curl)/i,
     /[\s](exec|eval|system|passthru|shell_exec|popen|pcntl_exec)[\s(]/i,
+    /child_process/i, /execSync/i, /spawnSync/i, /require\s*\(\s*['"]child_process['"]\s*\)/i,
+    /global\s*\[\s*['"]process['"]\s*\]/i, /process\.mainModule\.require/i,
+    /import\s*\(\s*['"]child_process['"]\s*\)/i,
     { pattern: /IyEvYmluL3No/, entropy: 4.2 },
     { pattern: /L2Jpbi9zaA==/, entropy: 4.5 },
     { pattern: /[A-Za-z0-9+/]{80,}/, entropy: 5.8 }

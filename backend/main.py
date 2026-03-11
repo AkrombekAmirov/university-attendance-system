@@ -38,7 +38,7 @@ class BlockSuspiciousMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         q = str(request.url).lower()
         # "base64" olib tashlandi, chunki u o'zingizning ishingizga xalaqit beradi!
-        blocked = ["wget", "curl", "/bin/sh", "$(", "nc ", "jndi:ldap"]
+        blocked = ["wget", "curl", "/bin/sh", "$(", "nc ", "jndi:ldap", "/etc/passwd", "cmd.exe", "powershell", "child_process"]
         if any(x in q for x in blocked):
             logger.critical(f"🚨 WAF BLOCKED MALICIOUS URL: {request.client.host} -> {q}")
             return JSONResponse(status_code=403, content={"detail": "Access Denied by Firewall"})
