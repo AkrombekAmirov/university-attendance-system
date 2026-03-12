@@ -1,6 +1,6 @@
 // frontend/middleware.ts
 // ════════════════════════════════════════════════════════════════════════════════
-// EARTH'S ULTIMATE FORTRESS v12.0 - MAXIMUM DEFENSE (ALL LAYERS COMBINED)
+// EARTH'S ULTIMATE FORTRESS v13.0 - MILITARY GRADE DEFENSE
 // ════════════════════════════════════════════════════════════════════════════════
 
 import { NextResponse, type NextRequest } from 'next/server';
@@ -14,12 +14,13 @@ import { isNightLockdownActive, isAllowedDuringNight } from './lib/security/curf
 const rateLimiter = new AdaptiveRateLimiter();
 
 function applySecurityHeaders(response: NextResponse, threatScore: number) {
-  const cspHeader = `
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const cspHeader = `
     default-src 'self';
     script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com;
     style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
     img-src 'self' data: https:; font-src 'self' data: https:;
-    connect-src 'self' https://api.davomat.uznpu.uz http://localhost:8000;
+    connect-src 'self' ${apiUrl};
     worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';
     frame-ancestors 'none'; block-all-mixed-content; upgrade-insecure-requests;
   `.replace(/\s{2,}/g, ' ').trim();
@@ -38,14 +39,15 @@ export async function middleware(request: NextRequest) {
     const path = request.nextUrl.pathname;
     const method = request.method;
 
-    // 🧱 1-QATLAM: TUNGI KOMENDANTLIK SOATI (00:00 - 05:00)
+    // 🧱 1-QATLAM: TUNGI KOMENDANTLIK SOATI
     if (isNightLockdownActive() && !isAllowedDuringNight(path, method)) {
         return new NextResponse(null, { status: 403 });
     }
 
-    // 🧱 2-QATLAM: GILYOTINA (IP QORA RO'YXATI)
+    // 🧱 2-QATLAM: GILYOTINA (IP VA SUBNET QORA RO'YXATI)
+    // ⚡ ELITA HIMOYA: Bloklangan IP lar tahlil qilinmasdan, 1 millisekundda uzib tashlanadi. Hech qanday Tarpit kutish yo'q.
     if (isIpBanned(ip)) {
-        return new NextResponse(null, { status: 403 });
+        return new NextResponse('Access Denied.', { status: 403 });
     }
 
     const host = request.headers.get('host') || '';
@@ -56,17 +58,28 @@ export async function middleware(request: NextRequest) {
       if (!isAllowedHost) return new NextResponse(null, { status: 403 });
     }
 
-    // 🧱 3-QATLAM: WAF TAHLILI (Fingerprint, DPI, Honeypots)
-    const analysis = await analyzeRequest(request, ip);
+    // 🧱 3-QATLAM: WAF TAHLILI VA DPI (DEEP PACKET INSPECTION)
+    let bodyText = '';
+    // Agar POST/PUT bo'lsa, xaker payloadlarini o'qiymiz
+    if (['POST', 'PUT', 'PATCH'].includes(method)) {
+        try {
+            // Asl oqimni buzmaslik uchun clone qilamiz
+            bodyText = await request.clone().text();
+        } catch (err) {
+            // Body ni o'qirolmaslik o'zi shubhali
+            bodyText = '';
+        }
+    }
+    const analysis = await analyzeRequest(request, ip, bodyText);
 
-    // 🧱 4-QATLAM: TARPIT (REVERSE-DDOS VA BAN)
+    // 🧱 4-QATLAM: INSTANT BAN (Tarpitsiz)
     if (analysis.threatScore >= 1000 || analysis.isHoneypot) {
-        // Xakerni 48 soatga Gilyotinaga kiritamiz
+        // Gilyotinaga olamiz (Subnet bilan birga)
         banIp(ip, 48);
-
-        // 15 soniya ushlab turib o'zini qulatamiz
-        await new Promise(resolve => setTimeout(resolve, 15000));
-        return new NextResponse(null, { status: 403 });
+        
+        // ⚡ ELITA HIMOYA: Biz endi xakerni vaqt orqali jazolamaymiz (bu serveringizni qulatadi),
+        // uning o'rniga soxta (dummy) ma'lumot beramiz yoki umuman server javob bermayotgandek ko'rsatamiz.
+        return new NextResponse('Not Found', { status: 404 });
     }
 
     // 🧱 5-QATLAM: COOKIE TRACKING & RATE LIMIT
@@ -103,11 +116,11 @@ export async function middleware(request: NextRequest) {
     return response;
 
   } catch (error) {
-    // Qulashlardan mutlaq himoya
     return new NextResponse(null, { status: 400 });
   }
 }
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|robots.txt|manifest.json|sw.js).*)'],
+  // api yo'nalishini tekshirish uchun matcher ni yangilash muhim
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|robots.txt|manifest.json|sw.js).*)'],
 };

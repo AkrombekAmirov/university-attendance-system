@@ -10,6 +10,8 @@ logs/
 # Alembic
 backend/alembic/
 backend/alembic.ini
+backend/BackupService/Database_2026-02-26_13-07-06.sql
+backend/BackupService/Database_2026-02-26_17-02-24.sql
 
 # Node
 node_modules/

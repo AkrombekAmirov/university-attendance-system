@@ -29,9 +29,9 @@ class StaticDevice:
 # 🔐 STATIK TURNIKETLAR
 STATIC_DEVICES = [
     StaticDevice(
-        id="a9f01b0d-9a18-423f-a5f1-96bda3e24da5",
-        name="TTJ oqtepa-2",
-        ip_address="10.39.33.67:9182",
+        id="a9f01b0d-9a18-423f-a5f1-96bda3e22ad9",
+        name="Musiqa face",
+        ip_address="172.18.0.10",
         username="admin",
         password="abcd2024",
     )

@@ -23,17 +23,9 @@ type SavedUser = {
     avatar?: string;
 };
 
-// 🛡️ DYNAMIC COOKIE SETTER (Barcha muammolarni hal qiluvchi funksiya)
-function setBulletproofCookie(name: string, value: string, days: number = 1) {
-    const maxAge = days * 24 * 60 * 60;
-    // Sayt HTTPS da ishlayotganini tekshiramiz
-    const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
-
-    // Agar HTTPS bo'lsa Secure qo'shamiz, bo'lmasa yo'q. Bu HTTP da ham ishlashini kafolatlaydi!
-    const secureFlag = isHttps ? 'Secure;' : '';
-
-    document.cookie = `${name}=${value}; path=/; max-age=${maxAge}; SameSite=Lax; ${secureFlag}`;
-}
+// 🛡️ DYNAMIC COOKIE SETTER HAS BEEN SECURELY DELETED
+// Tokens are now securely delivered exclusively via HttpOnly cookies by the backend.
+// We no longer expose them to JavaScript, mitigating XSS attacks.
 
 export default function LoginPage() {
     const { register, handleSubmit, setValue } = useForm<LoginForm>();
@@ -80,23 +72,17 @@ export default function LoginPage() {
                 })
             );
 
-            const { access_token, refresh_token, redirect_path, ...user } = res.data;
+            // Access and Refresh tokens are now set securely via HttpOnly cookies automatically!
+            const { redirect_path, ...user } = res.data;
 
-            // 1. Tizim xotiralariga yozish
-            setAccessToken(access_token);
-            setRefreshToken(refresh_token);
+            // 1. Tizim xotiralariga faqat zararsiz user ma'lumotlarini qoldiramiz (Ism, Rollar)
             localStorage.setItem("user", JSON.stringify(user));
-
-            // 2. 🛡️ ENG ASOSIY QADAM: Middleware o'qiy olishi uchun majburiy Cookie yozish
-            setBulletproofCookie("access_token", access_token, 1);
-            setBulletproofCookie("refresh_token", refresh_token, 7);
 
             if (data.rememberMe) {
                 saveUserCredentials(data.username, data.password);
             }
 
-            // 3. Next.js router orqali yo'naltirish (Sahifani qotirmaslik uchun)
-            // window.location.href o'rniga router.push ishlatsak, tizim tezroq ishlaydi
+            // 2. Next.js router orqali yo'naltirish
             window.location.href = redirect_path || "/staff";
 
         } catch {
@@ -156,16 +142,11 @@ export default function LoginPage() {
                 })
             );
 
-            const { access_token, refresh_token, redirect_path, ...userData } = res.data;
+            // Access and Refresh tokens are securely managed via HttpOnly cookies from backend
+            const { redirect_path, ...userData } = res.data;
 
-            // Xotiraga yozish
-            setAccessToken(access_token);
-            setRefreshToken(refresh_token);
+            // Xotiraga faqat oddiy ma'lumotlar tushadi
             localStorage.setItem("user", JSON.stringify(userData));
-
-            // 🛡️ Middleware uchun majburiy Cookie yozish
-            setBulletproofCookie("access_token", access_token, 1);
-            setBulletproofCookie("refresh_token", refresh_token, 7);
 
             saveUserCredentials(user.username, user.password);
 

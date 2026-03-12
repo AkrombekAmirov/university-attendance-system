@@ -1,38 +1,30 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.davomat.uznpu.uz";
-const BASE = `${API_URL}/organization`;
+import { api } from "@/lib/api";
 
 export async function getOrganizationId(): Promise<string | null> {
-    const token = localStorage.getItem("access_token");
-    const res = await fetch(`${BASE}/list`, {
-        headers: {Authorization: `Bearer ${token}`},
-    });
-    if (!res.ok) throw new Error("Tashkilotlar ro‘yxatini olishda xato");
-    const data = await res.json();
-    return data?.[0]?.id || null;
+    const res = await api.get("/organization/list");
+    return res.data?.[0]?.id || null;
 }
 
 export async function getOrgUnitTree(orgId: string): Promise<any[]> {
-    const token = localStorage.getItem("access_token");
-    const res = await fetch(`${BASE}/units/tree/${orgId}`, {
-        headers: {Authorization: `Bearer ${token}`},
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data?.tree || [];
+    try {
+        const res = await api.get(`/organization/units/tree/${orgId}`);
+        return res.data?.tree || [];
+    } catch {
+        return [];
+    }
 }
 
 export async function createOrgUnit(data: FormData) {
-    const token = localStorage.getItem("access_token");
-    const res = await fetch(`${BASE}/units/create`, {
-        method: "POST",
-        body: data,
-        headers: {Authorization: `Bearer ${token}`},
-    });
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error("Bo‘linma yaratilmadi: " + text);
+    try {
+        const res = await api.post("/organization/units/create", data, {
+            headers: {
+                "Content-Type": "multipart/form-data"
+            }
+        });
+        return res.data;
+    } catch (e: any) {
+        throw new Error("Bo‘linma yaratilmadi: " + (e.response?.data?.detail || e.message));
     }
-    return res.json();
 }
 
 // ==========================
@@ -51,21 +43,10 @@ export interface UnassignUserPayload {
 export async function unassignUserFromAllPositions(
     payload: UnassignUserPayload
 ): Promise<{ terminated: number }> {
-    const token = localStorage.getItem("access_token");
-
-    const res = await fetch(`${BASE}/assignments/unassign`, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error("Lavozimdan ozod etib bo‘lmadi: " + text);
+    try {
+        const res = await api.post("/organization/assignments/unassign", payload);
+        return res.data;
+    } catch (e: any) {
+        throw new Error("Lavozimdan ozod etib bo‘lmadi: " + (e.response?.data?.detail || e.message));
     }
-
-    return res.json();
 }
