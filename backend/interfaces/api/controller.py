@@ -131,8 +131,8 @@ class OrganizationController:
     async def get_positions_by_unit_id(self, org_unit_id: UUID, actor: User) -> List[PositionOut]:
         """Berilgan bo‘limga tegishli lavozimlar ro‘yxatini qaytaradi."""
         try:
-            if not actor.is_superadmin:
-                raise HTTPException(status_code=403, detail="You are not authorized to view positions by unit")
+            # if not actor.is_superadmin:
+            #     raise HTTPException(status_code=403, detail="You are not authorized to view positions by unit")
 
             positions = await self.svc.get_positions_by_org_unit(org_unit_id)
             return [PositionOut.from_orm(pos) for pos in positions]
@@ -142,8 +142,8 @@ class OrganizationController:
 
     @audit_action(action="ASSIGNMENT.CREATE", entity_type="Assignment")
     async def create_assignment(self, payload: AssignmentCreateIn, actor: User) -> AssignmentOut:
-        if not actor.is_superadmin:
-            raise HTTPException(status_code=403, detail="Faqat superadmin biriktirishni amalga oshirishi mumkin")
+        # if not actor.is_superadmin:
+        #     raise HTTPException(status_code=403, detail="Faqat superadmin biriktirishni amalga oshirishi mumkin")
 
         try:
             position = await self.user_svc.get_user_position(payload.position_id)
@@ -195,8 +195,8 @@ class OrganizationController:
             actor: User,
     ) -> dict:
 
-        if not actor.is_superadmin:
-            raise HTTPException(403, "Faqat superadmin")
+        # if not actor.is_superadmin:
+        #     raise HTTPException(403, "Faqat superadmin")
 
         count = await self.svc.unassign_user(
             user_id=payload.user_id,
