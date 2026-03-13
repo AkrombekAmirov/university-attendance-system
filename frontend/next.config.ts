@@ -17,7 +17,7 @@ const ContentSecurityPolicy = `
 `.replace(/\s{2,}/g, ' ').trim();
 
 const nextConfig: NextConfig = {
-    output: "standalone",
+    // output: "standalone",
     eslint: { ignoreDuringBuilds: true },
     typescript: { ignoreBuildErrors: true },
 
