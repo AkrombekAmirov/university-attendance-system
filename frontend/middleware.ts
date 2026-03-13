@@ -44,7 +44,7 @@ export async function middleware(request: NextRequest) {
     // =========================================================================
     // Axlat fayllar logni to'ldirib yubormasligi uchun oddiy static requestlarni o'tkazib yuboramiz.
     // Eslatma: config matcher orqali ular onsuz ham o'tmaydi, lekin xavfsizlik uchun qoldirildi.
-    const isStaticAsset = path.startsWith('/_next') || path.match(/\.(png|jpg|jpeg|gif|ico|svg|css|js|woff2)$/);
+    const isStaticAsset = path.startsWith('/_next/static') || path.startsWith('/_next/image') || path.match(/\.(png|jpg|jpeg|gif|ico|svg|css|js|woff2)$/);
     if (!isStaticAsset) {
         const time = new Date().toISOString();
         const userAgent = request.headers.get('user-agent') || 'No UA';
