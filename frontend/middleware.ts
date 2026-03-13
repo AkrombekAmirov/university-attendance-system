@@ -39,14 +39,29 @@ export async function middleware(request: NextRequest) {
     const path = request.nextUrl.pathname;
     const method = request.method;
 
+    // =========================================================================
+    // 👁️ RADAR QATLAM: SO'ROVLARNI LOGGA YOZISH (Jangovar Access Log)
+    // =========================================================================
+    // Axlat fayllar logni to'ldirib yubormasligi uchun oddiy static requestlarni o'tkazib yuboramiz.
+    // Eslatma: config matcher orqali ular onsuz ham o'tmaydi, lekin xavfsizlik uchun qoldirildi.
+    const isStaticAsset = path.startsWith('/_next') || path.match(/\.(png|jpg|jpeg|gif|ico|svg|css|js|woff2)$/);
+    if (!isStaticAsset) {
+        const time = new Date().toISOString();
+        const userAgent = request.headers.get('user-agent') || 'No UA';
+        console.log(`[WAF-ACCESS] ${time} | IP: ${ip.padEnd(15)} | ${method.padEnd(6)} | ${path.padEnd(30)} | UA: ${userAgent}`);
+    }
+    // =========================================================================
+
     // 🧱 1-QATLAM: TUNGI KOMENDANTLIK SOATI
     if (isNightLockdownActive() && !isAllowedDuringNight(path, method)) {
+        console.log(`[WAF-BLOCKED] ${ip} - Tungi komendantlik soati (${path})`);
         return new NextResponse(null, { status: 403 });
     }
 
     // 🧱 2-QATLAM: GILYOTINA (IP VA SUBNET QORA RO'YXATI)
-    // ⚡ ELITA HIMOYA: Bloklangan IP lar tahlil qilinmasdan, 1 millisekundda uzib tashlanadi. Hech qanday Tarpit kutish yo'q.
+    // ⚡ ELITA HIMOYA: Bloklangan IP lar tahlil qilinmasdan, 1 millisekundda uzib tashlanadi.
     if (isIpBanned(ip)) {
+        console.log(`[WAF-GILYOTINA] ${ip} - Qora ro'yxatdagi IP kesib tashlandi!`);
         return new NextResponse('Access Denied.', { status: 403 });
     }
 
@@ -55,18 +70,18 @@ export async function middleware(request: NextRequest) {
 
     if (process.env.NODE_ENV === 'production') {
       const isAllowedHost = ALLOWED_HOSTS.some(allowed => host === allowed || host.endsWith('.' + allowed) || host.startsWith(allowed.split(':')[0]));
-      if (!isAllowedHost) return new NextResponse(null, { status: 403 });
+      if (!isAllowedHost) {
+          console.log(`[WAF-BLOCKED] ${ip} - Noto'g'ri Host Header: ${host}`);
+          return new NextResponse(null, { status: 403 });
+      }
     }
 
     // 🧱 3-QATLAM: WAF TAHLILI VA DPI (DEEP PACKET INSPECTION)
     let bodyText = '';
-    // Agar POST/PUT bo'lsa, xaker payloadlarini o'qiymiz
     if (['POST', 'PUT', 'PATCH'].includes(method)) {
         try {
-            // Asl oqimni buzmaslik uchun clone qilamiz
             bodyText = await request.clone().text();
         } catch (err) {
-            // Body ni o'qirolmaslik o'zi shubhali
             bodyText = '';
         }
     }
@@ -74,11 +89,8 @@ export async function middleware(request: NextRequest) {
 
     // 🧱 4-QATLAM: INSTANT BAN (Tarpitsiz)
     if (analysis.threatScore >= 1000 || analysis.isHoneypot) {
-        // Gilyotinaga olamiz (Subnet bilan birga)
         banIp(ip, 48);
-        
-        // ⚡ ELITA HIMOYA: Biz endi xakerni vaqt orqali jazolamaymiz (bu serveringizni qulatadi),
-        // uning o'rniga soxta (dummy) ma'lumot beramiz yoki umuman server javob bermayotgandek ko'rsatamiz.
+        console.log(`🚨 [WAF-CRITICAL] ${ip} - Hujum aniqlandi! ThreatScore: ${analysis.threatScore}. IP 48 soatga bloklandi.`);
         return new NextResponse('Not Found', { status: 404 });
     }
 
@@ -95,9 +107,13 @@ export async function middleware(request: NextRequest) {
     const totalScore = cookieScore + analysis.threatScore;
     const rateCheck = rateLimiter.check(ip, totalScore);
 
-    if (!rateCheck.allowed) return new NextResponse('Too Many Requests', { status: 429 });
+    if (!rateCheck.allowed) {
+        console.log(`[WAF-RATE] ${ip} - Sorovlar soni oshib ketdi!`);
+        return new NextResponse('Too Many Requests', { status: 429 });
+    }
 
     if (!analysis.safe || totalScore >= 80) {
+      console.log(`[WAF-WARNING] ${ip} - Shubhali harakat. ThreatScore oshdi: ${totalScore}`);
       const newScore = Math.min(200, totalScore + 20);
       const newSignature = await signData(newScore.toString(), SECURITY_SECRET);
 
@@ -116,11 +132,11 @@ export async function middleware(request: NextRequest) {
     return response;
 
   } catch (error) {
+    // Agar WAF'ning o'zi xato qilsa (masalan parsingda), jimkina yopamiz
     return new NextResponse(null, { status: 400 });
   }
 }
 
 export const config = {
-  // api yo'nalishini tekshirish uchun matcher ni yangilash muhim
   matcher: ['/((?!_next/static|_next/image|favicon.ico|robots.txt|manifest.json|sw.js).*)'],
 };
