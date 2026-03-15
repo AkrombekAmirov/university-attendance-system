@@ -29,9 +29,9 @@ class StaticDevice:
 # 🔐 STATIK TURNIKETLAR
 STATIC_DEVICES = [
     StaticDevice(
-        id="a9f01b0d-9a18-423f-a5f1-96bda3e22ad9",
-        name="Musiqa face",
-        ip_address="172.18.0.10",
+        id="63df8408-a59b-4bb5-be65-d6f5bce02bfb",
+        name="Asosiy Turniket 1",
+        ip_address="192.128.1.211",
         username="admin",
         password="abcd2024",
     )
@@ -45,7 +45,7 @@ QUEUE_MAXSIZE = 10_000
 NUM_DB_WORKERS = 5
 
 # 🔑 STATIC DATE FOR ALL DEVICES
-HISTORY_START_DATE = datetime(2026, 2, 1)
+HISTORY_START_DATE = datetime(2026, 3, 13)
 
 DB_BATCH_SIZE = 50
 DB_BATCH_TIMEOUT = 0.2
