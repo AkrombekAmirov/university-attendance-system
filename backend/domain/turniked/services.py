@@ -187,26 +187,23 @@ class TurnikedService:
 
         out: List[Dict[str, Any]] = []
 
-        # 5️⃣ 🔥 DEVICE CACHE
-        device_cache: Dict[UUID, Optional[str]] = {}
+        # 5️⃣ 🔥 FETCH ALL DEVICES
+        all_device_ids = set()
+        for r in daily_rows:
+            if r.first_device_id: all_device_ids.add(r.first_device_id)
+            if r.last_device_id: all_device_ids.add(r.last_device_id)
 
-        async def get_device_name(dev_id: UUID | None) -> Optional[str]:
-            if not dev_id:
-                return None
-
-            if dev_id in device_cache:
-                return device_cache[dev_id]
-
-            dev = await self.device_repo.get_by_id(dev_id)
-            device_cache[dev_id] = dev.name if dev else None
-            return device_cache[dev_id]
+        device_map: Dict[UUID, str] = {}
+        if all_device_ids:
+            devices = await self.device_repo.list_by_ids(list(all_device_ids))
+            device_map = {d.id: d.name for d in devices}
 
         # 6️⃣ HAR BIR USER BO‘YICHA
         for uid in user_ids:
             d = daily_by_user.get(uid)
 
-            first_device_name = await get_device_name(d.first_device_id if d else None)
-            last_device_name = await get_device_name(d.last_device_id if d else None)
+            first_device_name = device_map.get(d.first_device_id) if d and d.first_device_id else None
+            last_device_name = device_map.get(d.last_device_id) if d and d.last_device_id else None
 
             out.append({
                 "user_id": uid,

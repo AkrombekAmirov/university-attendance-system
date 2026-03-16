@@ -475,74 +475,119 @@ class UserService:
         return filtered
 
     async def build_org_tree(self, current_user_id: UUID, subordinate_ids: List[UUID]) -> dict:
-        # 1️⃣ Rahbarning asosiy lavozimi
-        pos_id = await self.unit_repo.get_active_position_by_user(current_user_id)
-        if not pos_id:
-            return {"id": current_user_id, "units": []}
+        # 1️⃣ Rahbarning asosiy lavozimi va OrgUnit'ni topamiz
+        async with self.db.session_scope() as s:
+            # Rahbarning aktiv pozitsiyasi va unitini bitta query'da olamiz
+            stmt = (
+                select(Assignment.position_id, Position.title, Position.org_unit_id)
+                .join(Position, Position.id == Assignment.position_id)
+                .where(
+                    Assignment.user_id == current_user_id,
+                    Assignment.status == "ACTIVE"
+                )
+                .limit(1)
+            )
+            res = await s.execute(stmt)
+            row = res.one_or_none()
+            if not row:
+                return {"id": current_user_id, "units": []}
 
-        # 2️⃣ OrgUnit topamiz
-        org_unit_id = await self.unit_repo.get_org_unit_by_user_id(current_user_id)
-        if not org_unit_id:
-            return {"id": current_user_id, "units": []}
+            pos_id, pos_title, root_unit_id = row
 
-        # 3️⃣ Root org unit
-        root_unit = await self.unit_repo.get(org_unit_id)
+            # 2️⃣ Root unitni va uning barcha avlodlarini olamiz
+            root_unit = await self.unit_repo.get(root_unit_id)
+            if not root_unit:
+                return {"id": current_user_id, "units": []}
 
-        # 4️⃣ Position closure (rahbar nazoratidagi positionlar)
-        child_positions = await self.closure_repo.get_child_positions(pos_id)
-        position_ids = list(set(child_positions + [pos_id]))
+            # Path orqali barcha pastki unitlarni olamiz
+            # Unit path: /parent_id/unit_id/
+            descendants_stmt = select(OrgUnit).where(
+                OrgUnit.path.like(f"{root_unit.path}{root_unit.id}/%"),
+                OrgUnit.is_deleted == False
+            )
+            desc_res = await s.execute(descendants_stmt)
+            all_units = [root_unit] + list(desc_res.scalars().all())
+            all_unit_ids = [u.id for u in all_units]
 
-        # 5️⃣ Position → staff mapping
-        staff_ids = await self.assign_repo.get_users_by_positions(position_ids)
-        staff_ids = [uid for uid in staff_ids if uid != current_user_id]
+            # 3️⃣ Barcha positionlarni olamiz
+            pos_stmt = select(Position).where(
+                Position.org_unit_id.in_(all_unit_ids),
+                Position.is_deleted == False
+            )
+            pos_res = await s.execute(pos_stmt)
+            all_positions = list(pos_res.scalars().all())
+            all_pos_ids = [p.id for p in all_positions]
 
+        # 4️⃣ Staff mapping (subordinate xodimlar)
+        # subordinate_ids ichida current_user_id bo'lmasligi kerak (odatda shunday)
+        staff_ids = [uid for uid in subordinate_ids if uid != current_user_id]
         staff_dtos = await self.get_many_by_ids(staff_ids)
 
-        staff_map: Dict[UUID, List] = {pid: [] for pid in position_ids}
-        for s in staff_dtos:
-            # s = UserStaffDTO
-            for pid in position_ids:
+        # User id -> position title (Assignmentdan olingan title)
+        # Bizga position_id -> staff_list mapping kerak
+        # Shuning uchun staff_dtos ni position title bo'yicha emas, position_id bo'yicha yig'ishimiz kerak
+        # Ammo get_many_by_ids bizga position title beradi, position_id emas.
+        # Shuning uchun assignmentlarni ham batch olish yaxshiroq.
+
+        async with self.db.session_scope() as s:
+            staff_assign_stmt = (
+                select(Assignment.user_id, Assignment.position_id)
+                .where(
+                    Assignment.user_id.in_(staff_ids),
+                    Assignment.position_id.in_(all_pos_ids),
+                    Assignment.status == "ACTIVE"
+                )
+            )
+            staff_assign_res = await s.execute(staff_assign_stmt)
+            staff_assignments = staff_assign_res.all()
+
+        staff_map = {p.id: [] for p in all_positions}
+        user_dto_map = {s.id: s for s in staff_dtos}
+
+        for uid, pid in staff_assignments:
+            if uid in user_dto_map:
+                dto = user_dto_map[uid]
                 staff_map[pid].append({
-                    "id": s.id,
-                    "full_name": s.full_name,
-                    "position": s.position
+                    "id": dto.id,
+                    "full_name": dto.full_name,
+                    "position": dto.position
                 })
 
-        # 6️⃣ Recursive unit builder
-        async def build_nodes(unit):
-            positions = await self.pos_repo.get_positions_by_org_unit(unit.id)
+        # 5️⃣ Tree build in-memory
+        unit_to_positions = {u.id: [] for u in all_units}
+        for p in all_positions:
+            unit_to_positions[p.org_unit_id].append({
+                "id": p.id,
+                "title": p.title,
+                "staff": staff_map.get(p.id, []),
+                "children": [] # Legacy structure compatibility
+            })
 
-            pos_nodes = []
-            for p in positions:
-                pos_nodes.append({
-                    "id": p.id,
-                    "title": p.title,
-                    "staff": staff_map.get(p.id, []),
-                    "children": []
-                })
-
-            children_units = await self.unit_repo.get_children(unit.id)
-
-            return {
-                "id": unit.id,
-                "name": unit.name,
-                "unit_type": unit.unit_type,
-                "positions": pos_nodes,
-                "children": [
-                    await build_nodes(child)
-                    for child in children_units
-                ]
+        unit_node_map = {}
+        for u in all_units:
+            unit_node_map[u.id] = {
+                "id": u.id,
+                "name": u.name,
+                "unit_type": u.unit_type,
+                "positions": unit_to_positions[u.id],
+                "children": []
             }
 
-        tree = await build_nodes(root_unit)
+        roots = []
+        for u in all_units:
+            node = unit_node_map[u.id]
+            if u.id == root_unit_id:
+                roots.append(node)
+            elif u.parent_id in unit_node_map:
+                unit_node_map[u.parent_id]["children"].append(node)
 
         current_user = await self.users.get_by_id(current_user_id)
 
         return {
             "id": current_user_id,
             "full_name": current_user.full_name or current_user.username,
-            "position": (await self.pos_repo.get_by_id(pos_id)).title,
-            "units": [tree]
+            "position": pos_title,
+            "units": roots
         }
 
     async def update_user_basic(self, user_id: UUID, payload: UserUpdateIn) -> dict:

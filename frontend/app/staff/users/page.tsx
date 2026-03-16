@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect, useState} from "react";
+import {useEffect, useState, memo, useCallback, useMemo} from "react";
 import {fetchMyTree, fetchUnitDaily} from "@/lib/api";
 import {Card, CardHeader, CardTitle} from "@/components/ui/card";
 import {Button} from "@/components/ui/button";
@@ -18,6 +18,61 @@ import {motion, AnimatePresence} from "framer-motion";
 import {useRouter} from "next/navigation";
 
 type Step = "root" | "unit" | "staff";
+
+/* ===================== HELPER COMPONENTS ===================== */
+
+const StaffTableRow = memo(({ item, idx, getSafeExitTime, statusColor }: any) => {
+    return (
+        <motion.tr
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.2, delay: idx < 20 ? idx * 0.02 : 0 }}
+            className={`
+                border-b 
+                ${idx % 2 === 0 ? "bg-white/80" : "bg-indigo-50/40"}
+                transition hover:bg-indigo-100/60
+            `}
+        >
+            <td className="p-3 text-center font-semibold text-gray-600">
+                {idx + 1}
+            </td>
+
+            <td className="p-3">
+                {item.full_name}
+            </td>
+
+            <td className="p-3">{item.position}</td>
+
+            <td
+                className={`
+                    p-3 text-center font-semibold border 
+                    rounded-lg ${statusColor(item)}
+                `}
+            >
+                {item.first_entry
+                    ? dayjs(item.first_entry).format("HH:mm")
+                    : "KELMADI"}
+            </td>
+
+            <td className="p-3 text-center text-indigo-700 font-medium">
+                {item.first_device || "-"}
+            </td>
+
+            <td className="p-3 text-center font-medium">
+                {getSafeExitTime(item.first_entry, item.last_exit) ?? "-"}
+            </td>
+
+
+            <td className="p-3 text-center text-indigo-700 font-medium">
+                {getSafeExitTime(item.first_entry, item.last_exit)
+                    ? item.last_device || "-"
+                    : "-"}
+            </td>
+        </motion.tr>
+    );
+});
+
+StaffTableRow.displayName = "StaffTableRow";
 
 export default function StaffUsersPage() {
     const router = useRouter();
@@ -58,14 +113,19 @@ export default function StaffUsersPage() {
     }, []);
 
     /* ===================== LOAD DAILY ===================== */
-    async function loadDaily(unitId: string, dateStr: string) {
+    const loadDaily = useCallback(async (unitId: string, dateStr: string) => {
         setLoadingDaily(true);
-        const data = await fetchUnitDaily(unitId, dateStr);
-        setDaily(data);
-        setLoadingDaily(false);
-    }
+        try {
+            const data = await fetchUnitDaily(unitId, dateStr);
+            setDaily(data);
+        } catch (err) {
+            console.error("Failed to load daily", err);
+        } finally {
+            setLoadingDaily(false);
+        }
+    }, []);
 
-    function openNode(node: any) {
+    const openNode = useCallback((node: any) => {
         if (selectedNode) {
             setNodeStack((prev) => [...prev, selectedNode]);
         }
@@ -78,16 +138,17 @@ export default function StaffUsersPage() {
             setStep("staff");
             loadDaily(node.id, selectedDate);
         }
-    }
+    }, [selectedNode, selectedDate, loadDaily]);
 
 
-    function reset() {
+    const reset = useCallback(() => {
         setStep("root");
         setSelectedNode(null);
         setDaily([]);
-    }
+        setNodeStack([]);
+    }, []);
 
-    function goBack() {
+    const goBack = useCallback(() => {
         setDaily([]);
 
         setNodeStack((prev) => {
@@ -112,14 +173,14 @@ export default function StaffUsersPage() {
 
             return newStack;
         });
-    }
+    }, [loadDaily, selectedDate]);
 
 
-    function getSafeExitTime(
+    const getSafeExitTime = useCallback((
         firstEntry?: string | null,
         lastExit?: string | null,
         minMinutes = 60
-    ): string | null {
+    ): string | null => {
         if (!firstEntry || !lastExit) return null;
 
         const entry = dayjs(firstEntry);
@@ -134,13 +195,19 @@ export default function StaffUsersPage() {
         if (diffMinutes < minMinutes) return null;
 
         return exit.format("HH:mm");
-    }
+    }, []);
 
 
-    function statusColor(item: any) {
+    const statusColor = useCallback((item: any) => {
         if (!item.first_entry) return "bg-red-100 text-red-700 border-red-200";
         return "bg-emerald-100 text-emerald-700 border-emerald-200";
-    }
+    }, []);
+
+    const firstLevel = useMemo(() => {
+        if (!tree) return [];
+        const root = tree.units?.[0];
+        return root?.children || [];
+    }, [tree]);
 
     if (loading)
         return (
@@ -152,9 +219,6 @@ export default function StaffUsersPage() {
                 Yuklanmoqda...
             </motion.div>
         );
-
-    const root = tree.units?.[0];
-    const firstLevel = root?.children || [];
 
     /* ====================== PAGE =========================== */
 
@@ -367,84 +431,56 @@ export default function StaffUsersPage() {
                                 bg-white/70 backdrop-blur border border-white/40
                             "
                         >
-                            <table className="w-full text-sm">
-                                <thead
-                                    className="
-                                        bg-gradient-to-r from-indigo-100 to-blue-100
-                                        border-b text-slate-700
-                                    "
-                                >
-                                <tr>
-                                    <th className="p-3 text-center w-12">№</th>
-                                    <th className="p-3 text-left">F.I.Sh</th>
-                                    <th className="p-3 text-left">Lavozim</th>
-                                    <th className="p-3 text-center">
-                                        <Clock size={14}/> Kirish
-                                    </th>
-                                    <th className="p-3 text-center">Kirish turniketi</th>
-                                    <th className="p-3 text-center">
-                                        <Clock size={14}/> Chiqish
-                                    </th>
-                                    <th className="p-3 text-center">Chiqish turniketi</th>
-                                </tr>
-                                </thead>
-
-                                <tbody>
-                                {daily.map((item, idx) => (
-                                    <motion.tr
-                                        key={item.user_id}
-                                        initial={{opacity: 0}}
-                                        animate={{opacity: 1}}
-                                        transition={{duration: 0.3, delay: idx * 0.03}}
-                                        className={`
-                                                border-b 
-                                                ${
-                                            idx % 2 === 0
-                                                ? "bg-white/80"
-                                                : "bg-indigo-50/40"
-                                        }
-                                                transition hover:bg-indigo-100/60
-                                            `}
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead
+                                        className="
+                                            bg-gradient-to-r from-indigo-100 to-blue-100
+                                            border-b text-slate-700
+                                        "
                                     >
-                                        <td className="p-3 text-center font-semibold text-gray-600">
-                                            {idx + 1}
-                                        </td>
+                                    <tr>
+                                        <th className="p-3 text-center w-12">№</th>
+                                        <th className="p-3 text-left">F.I.Sh</th>
+                                        <th className="p-3 text-left">Lavozim</th>
+                                        <th className="p-3 text-center">
+                                            <Clock size={14}/> Kirish
+                                        </th>
+                                        <th className="p-3 text-center">Kirish turniketi</th>
+                                        <th className="p-3 text-center">
+                                            <Clock size={14}/> Chiqish
+                                        </th>
+                                        <th className="p-3 text-center">Chiqish turniketi</th>
+                                    </tr>
+                                    </thead>
 
-                                        <td className="p-3">
-                                            {item.full_name}
-                                        </td>
-
-                                        <td className="p-3">{item.position}</td>
-
-                                        <td
-                                            className={`
-                                                    p-3 text-center font-semibold border 
-                                                    rounded-lg ${statusColor(item)}
-                                                `}
-                                        >
-                                            {item.first_entry
-                                                ? dayjs(item.first_entry).format("HH:mm")
-                                                : "KELMADI"}
-                                        </td>
-
-                                        <td className="p-3 text-center text-indigo-700 font-medium">
-                                            {item.first_device || "-"}
-                                        </td>
-
-                                        <td className="p-3 text-center font-medium">
-                                            {getSafeExitTime(item.first_entry, item.last_exit) ?? "-"}
-                                        </td>
-
-
-                                        <td className="p-3 text-center text-indigo-700 font-medium">
-                                            {getSafeExitTime(item.first_entry, item.last_exit)
-                                                ? item.last_device || "-"
-                                                : "-"}
-                                        </td>
-                                    </motion.tr>
-                                ))}
-                                </tbody>
-                            </table>
+                                    <tbody>
+                                    {daily.map((item, idx) => (
+                                        <StaffTableRow
+                                            key={item.user_id}
+                                            item={item}
+                                            idx={idx}
+                                            getSafeExitTime={getSafeExitTime}
+                                            statusColor={statusColor}
+                                        />
+                                    ))}
+                                    {daily.length === 0 && !loadingDaily && (
+                                        <tr>
+                                            <td colSpan={7} className="p-10 text-center text-gray-400">
+                                                Ma&apos;lumot topilmadi
+                                            </td>
+                                        </tr>
+                                    )}
+                                    {loadingDaily && (
+                                        <tr>
+                                            <td colSpan={7} className="p-10 text-center text-indigo-500 animate-pulse">
+                                                Yuklanmoqda...
+                                            </td>
+                                        </tr>
+                                    )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </motion.div>
 
                     </motion.div>

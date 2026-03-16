@@ -531,6 +531,20 @@ class DeviceRepository(BaseRepository[Device]):
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
 
+    async def list_by_ids(self, ids: List[UUID]) -> List[Device]:
+        if not ids:
+            return []
+        async with self.db.session_scope() as session:
+            stmt = (
+                select(Device)
+                .where(
+                    Device.id.in_(ids),
+                    Device.is_deleted == False
+                )
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
     async def get_active_devices(self) -> List[Device]:
         return await self.list({
             "is_active": True,
